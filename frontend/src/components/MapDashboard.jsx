@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { getInterventions } from '../services/apiClient';
 import { supabase } from '../services/supabaseClient';
 import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin } from 'lucide-react';
+import InterventionPopup from './InterventionPopup';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'Pw2ozdqe8K3Hu9Qg6OkX';
@@ -170,7 +171,7 @@ export default function MapDashboard() {
           
           <h1 className="text-2xl font-bold text-red-500 tracking-tighter flex items-center gap-2 uppercase">
             <Target className="w-6 h-6" />
-            Intel_Dashboard
+            US_Interventions
           </h1>
           <p className="text-xs text-gray-500 mt-2">REGISTRO DE INTERVENCIONES E INJERENCIAS CLASIFICADAS</p>
           
@@ -318,87 +319,12 @@ export default function MapDashboard() {
           ))}
 
 
-          {/* Popup Detallado */}
+          {/* Popup Detallado con IA y Social */}
           {selectedEvent && (
-            <Popup
-              longitude={selectedEvent.geometry.coordinates[0]}
-              latitude={selectedEvent.geometry.coordinates[1]}
-              anchor="bottom"
-              onClose={() => setSelectedEvent(null)}
-              className="dark-popup"
-              maxWidth="400px"
-              closeButton={false}
-            >
-              <div className="bg-[#111] border border-gray-700 shadow-2xl rounded text-gray-300 w-80 font-mono">
-                <div className="flex justify-between items-center p-3 border-b border-gray-800 bg-black">
-                  <h3 className="font-bold text-white text-sm truncate pr-2">{selectedEvent.properties.title}</h3>
-                  <button onClick={() => setSelectedEvent(null)} className="text-gray-500 hover:text-white">
-                    <X size={16} />
-                  </button>
-                </div>
-                
-                <div className="flex border-b border-gray-800 text-xs">
-                  <button 
-                    className={`flex-1 p-2 text-center transition-colors ${activeTab === 'summary' ? 'text-red-500 border-b-2 border-red-500 bg-[#1a1a1a]' : 'hover:bg-[#1a1a1a]'}`}
-                    onClick={() => setActiveTab('summary')}
-                  >
-                    RESUMEN
-                  </button>
-                  <button 
-                    className={`flex-1 p-2 text-center transition-colors ${activeTab === 'sources' ? 'text-red-500 border-b-2 border-red-500 bg-[#1a1a1a]' : 'hover:bg-[#1a1a1a]'}`}
-                    onClick={() => setActiveTab('sources')}
-                  >
-                    FUENTES
-                  </button>
-                </div>
-
-                <div className="p-4 h-48 overflow-y-auto text-sm">
-                  {activeTab === 'summary' && (
-                    <div className="space-y-3 text-xs text-gray-400">
-                      <div className="flex items-center gap-2 text-white">
-                        <AlertTriangle size={14} style={{ color: selectedEvent.properties.color_code }}/>
-                        <span>{selectedEvent.properties.type_name}</span>
-                      </div>
-                      
-                      {/* Tags */}
-                      {selectedEvent.properties.tags && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {JSON.parse(selectedEvent.properties.tags).map((tag, idx) => (
-                            <span key={idx} className="bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded text-[10px] border border-red-900/50">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <p className="leading-relaxed mt-3 text-gray-300">{selectedEvent.properties.description}</p>
-                      
-                      <div className="flex items-center gap-2 pt-2 border-t border-gray-800 mt-2">
-                        <Clock size={14} className="text-gray-500"/>
-                        <span>{selectedEvent.properties.start_year} {selectedEvent.properties.end_year ? `- ${selectedEvent.properties.end_year}` : ''}</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {activeTab === 'sources' && (
-                    <div className="space-y-3">
-                      {JSON.parse(selectedEvent.properties.sources || '[]').length > 0 ? (
-                         JSON.parse(selectedEvent.properties.sources).map((src, i) => (
-                           <div key={i} className="bg-black p-2 border border-gray-800 rounded">
-                             <a href={src.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-xs font-bold block mb-1">
-                               {src.source_name}
-                             </a>
-                             <p className="text-[10px] text-gray-500">{src.snippet}</p>
-                           </div>
-                         ))
-                      ) : (
-                        <p className="text-xs text-gray-600 italic">No hay fuentes desclasificadas disponibles.</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Popup>
+            <InterventionPopup 
+              feature={selectedEvent} 
+              onClose={() => setSelectedEvent(null)} 
+            />
           )}
         </Map>
 
