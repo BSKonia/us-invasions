@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #0a0a0a;
+}
+
+/* Scrollbar personalizada para el Sidebar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #111; 
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333; 
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #ef4444; /* hover rojo */
+}
+
+/* Modificar el Popup de MapLibre para el Dark Mode */
+.dark-popup .maplibregl-popup-content {
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+.dark-popup .maplibregl-popup-tip {
+  border-top-color: #111 !important;
+  border-bottom-color: #111 !important;
+}
