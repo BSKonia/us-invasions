@@ -81,3 +81,13 @@ export const addVote = async (interventionId, category, score, token) => {
 };
 
 export default apiClient;
+
+export const getAiSources = async (interventionId) => {
+  try {
+    const response = await apiClient.get(`/interventions/${interventionId}/ai_sources`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching AI sources:', error);
+    return null;
+  }
+};

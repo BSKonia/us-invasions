@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Popup } from 'react-map-gl/maplibre';
 import { Target, AlertTriangle, Clock, X, BrainCircuit, MessageSquare, Star, Send } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../services/supabaseClient';
-import { getAiSummary, getComments, addComment, getVotes, addVote } from '../services/apiClient';
+import { getAiSummary, getComments, addComment, getVotes, addVote, getAiSources } from '../services/apiClient';
 
 export default function InterventionPopup({ feature, onClose }) {
   const [activeTab, setActiveTab] = useState('summary');
@@ -23,6 +24,15 @@ export default function InterventionPopup({ feature, onClose }) {
   const [userVoteState, setUserVoteState] = useState({ justification: 0, success: 0, impact: 0 });
   const [votingLoading, setVotingLoading] = useState(false);
 
+
+  // States for AI Sources
+  const [aiSources, setAiSources] = useState(null);
+  const [aiSourcesLoading, setAiSourcesLoading] = useState(false);
+  const [aiSourcesError, setAiSourcesError] = useState(null);
+
+  // States for Source Modal
+  const [modalSource, setModalSource] = useState(null);
+
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -37,13 +47,20 @@ export default function InterventionPopup({ feature, onClose }) {
     setAiError(null);
     setComments([]);
     setVotesData({ averages: {}, total_votes: 0 });
+
     setUserVoteState({ justification: 0, success: 0, impact: 0 });
+    setAiSources(null);
+    setAiSourcesError(null);
+    setModalSource(null);
     setActiveTab('summary');
   }, [feature]);
 
   useEffect(() => {
     if (activeTab === 'ai' && !aiSummary && !aiError) {
       fetchAiSummary();
+    }
+    if (activeTab === 'sources' && aiSources === null && !aiSourcesError) {
+      fetchAiSources();
     }
     if (activeTab === 'social' && comments.length === 0) {
       fetchSocialData();
@@ -64,6 +81,25 @@ export default function InterventionPopup({ feature, onClose }) {
       setAiError("Error de comunicación con el servidor de inteligencia artificial.");
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const fetchAiSources = async () => {
+    setAiSourcesLoading(true);
+    setAiSourcesError(null);
+    try {
+      // 1. Mirar si ya había fuentes legacy en las properties (del JSON viejo) para mezclarlas o ignorarlas
+      // 2. Pedir las de la IA
+      const data = await getAiSources(feature.properties.id);
+      if (data && Array.isArray(data.sources)) {
+        setAiSources(data.sources);
+      } else {
+        setAiSourcesError("No se pudieron generar fuentes fiables.");
+      }
+    } catch (err) {
+      setAiSourcesError("Error al conectar con la IA para buscar archivos.");
+    } finally {
+      setAiSourcesLoading(false);
     }
   };
 
@@ -222,17 +258,33 @@ export default function InterventionPopup({ feature, onClose }) {
           {/* TAB 2: SOURCES */}
           {activeTab === 'sources' && (
             <div className="space-y-3">
-              {JSON.parse(feature.properties.sources || '[]').length > 0 ? (
-                 JSON.parse(feature.properties.sources).map((src, i) => (
-                   <div key={i} className="bg-black p-2 border border-gray-800 rounded">
-                     <a href={src.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-xs font-bold block mb-1">
-                       {src.source_name}
-                     </a>
-                     <p className="text-[10px] text-gray-500">{src.snippet}</p>
+              <p className="text-[10px] text-gray-500 mb-2 border-b border-gray-800 pb-2">Hemeroteca Inteligente: Archivos recuperados.</p>
+              {aiSourcesLoading ? (
+                <div className="flex flex-col items-center justify-center py-10 opacity-70">
+                  <BrainCircuit size={32} className="text-yellow-600 animate-pulse mb-3" />
+                  <p className="text-xs text-yellow-600 text-center">Buscando documentos y noticias históricas...</p>
+                </div>
+              ) : aiSourcesError ? (
+                <p className="text-xs text-red-500 border border-red-900/50 bg-red-900/20 p-3 rounded">{aiSourcesError}</p>
+              ) : aiSources && aiSources.length > 0 ? (
+                 aiSources.map((src, i) => (
+                   <div 
+                     key={i} 
+                     className="bg-black p-3 border border-gray-800 rounded cursor-pointer hover:border-blue-500/50 transition-colors group"
+                     onClick={() => setModalSource(src)}
+                   >
+                     <div className="flex justify-between items-start mb-1">
+                       <span className="text-blue-400 font-bold text-xs group-hover:text-blue-300 flex items-center gap-1">
+                         {src.source_name} <ExternalLink size={10} />
+                       </span>
+                       <span className="text-[10px] text-gray-500 bg-gray-900 px-1.5 rounded">{src.date}</span>
+                     </div>
+                     <p className="text-xs text-white font-semibold mb-1">{src.headline}</p>
+                     <p className="text-[10px] text-gray-400 leading-tight">{src.snippet}</p>
                    </div>
                  ))
               ) : (
-                <p className="text-xs text-gray-600 italic">No hay fuentes desclasificadas disponibles.</p>
+                <p className="text-xs text-gray-600 italic">No hay fuentes disponibles para este conflicto.</p>
               )}
             </div>
           )}
@@ -334,6 +386,48 @@ export default function InterventionPopup({ feature, onClose }) {
           )}
 
         </div>
+
+        {/* Source Iframe Modal */}
+        {modalSource && (
+          <div className="absolute inset-0 z-50 bg-[#0a0a0a] flex flex-col animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center p-3 border-b border-gray-800 bg-black shrink-0">
+              <div className="flex flex-col overflow-hidden pr-2">
+                <span className="text-xs font-bold text-blue-400 truncate">{modalSource.source_name}</span>
+                <span className="text-[10px] text-gray-500 truncate">{modalSource.headline}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a 
+                  href={modalSource.url} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="text-[10px] bg-blue-900/30 text-blue-400 border border-blue-900/50 px-2 py-1 rounded hover:bg-blue-900/50 transition-colors flex items-center gap-1"
+                >
+                  ABRIR <ExternalLink size={10}/>
+                </a>
+                <button onClick={() => setModalSource(null)} className="text-gray-500 hover:text-white p-1">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 bg-white relative">
+              {/* Fallback for iframe blocking (X-Frame-Options) */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-[#111] z-0">
+                 <p className="text-sm text-gray-300 mb-2">Este sitio podría bloquear la visualización incrustada por seguridad.</p>
+                 <a href={modalSource.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline text-xs font-bold">Haz clic aquí para abrir en una nueva pestaña</a>
+              </div>
+              
+              {/* The Iframe */}
+              <iframe 
+                src={modalSource.url} 
+                className="w-full h-full relative z-10 bg-white" 
+                title="Source View"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              />
+            </div>
+          </div>
+        )}
+
       </div>
     </Popup>
   );

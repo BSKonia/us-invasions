@@ -162,6 +162,75 @@ Formato: Markdown (usa negritas para nombres y fechas clave). No pongas el títu
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al generar con IA: {str(e)}")
 
+
+@app.get("/api/interventions/{intervention_id}/ai_sources")
+async def get_intervention_ai_sources(intervention_id: str):
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # 1. Comprobar caché
+        res = await client.get(
+            f"{SUPABASE_URL}/rest/v1/interventions?id=eq.{intervention_id}&select=ai_sources,title,country_name,start_year",
+            headers=headers
+        )
+        data = res.json()
+        
+        if not data:
+            raise HTTPException(status_code=404, detail="Intervención no encontrada")
+            
+        intervention = data[0]
+        
+        # Si ya existen, las devolvemos
+        if intervention.get("ai_sources"):
+            return {"sources": intervention["ai_sources"], "cached": True}
+            
+        if not client_genai:
+            raise HTTPException(status_code=500, detail="Gemini API no configurada")
+
+        prompt = f'''Actúa como un archivero histórico. Para la intervención "{intervention.get('title')}" ({intervention.get('start_year')}) en {intervention.get('country_name')}, proporciona 5 referencias a periódicos, fuentes oficiales o documentos desclasificados.
+
+DEVUELVE ÚNICAMENTE UN ARRAY JSON con esta estructura exacta (sin texto Markdown alrededor, solo los corchetes y llaves):
+[
+  {{
+    "source_name": "Nombre del periódico/documento (Ej: The New York Times)",
+    "date": "Fecha (Ej: 20 Dic 1989)",
+    "headline": "Titular de la noticia",
+    "url": "https://es.wikipedia.org/wiki/Especial:Buscar?search=...", 
+    "snippet": "Un breve resumen de 2 líneas."
+  }}
+]
+Asegúrate de que la URL sea un enlace de búsqueda válido en Wikipedia o un buscador para evitar links rotos.
+'''
+        try:
+            ai_response = client_genai.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt
+            )
+            raw_text = ai_response.text
+            
+            # Limpiar posible markdown residual (```json ... ```)
+            clean_text = raw_text.replace("```json", "").replace("```", "").strip()
+            sources_json = json.loads(clean_text)
+            
+            # Guardar en base de datos
+            await client.patch(
+                f"{SUPABASE_URL}/rest/v1/interventions?id=eq.{intervention_id}",
+                headers=headers,
+                json={"ai_sources": sources_json}
+            )
+            
+            return {"sources": sources_json, "cached": False}
+        except json.JSONDecodeError:
+             raise HTTPException(status_code=500, detail="Error parseando el JSON de Gemini: " + raw_text)
+        except Exception as e:
+            print("GEMINI ERROR:", e)
+            raise HTTPException(status_code=500, detail=f"Error al generar fuentes: {str(e)}")
+
 # ================================
 # SISTEMA SOCIAL: COMENTARIOS
 # ================================

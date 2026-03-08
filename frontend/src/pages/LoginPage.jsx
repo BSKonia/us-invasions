@@ -42,7 +42,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md p-8 bg-[#111] border border-gray-800 shadow-2xl rounded-sm z-10 relative">
         <div className="flex flex-col items-center mb-8">
           <Target className="w-12 h-12 text-red-500 mb-2" />
-          <h1 className="text-3xl font-bold text-red-500 tracking-tighter uppercase">Intel_Access</h1>
+          <h1 className="text-3xl font-bold text-red-500 tracking-tighter uppercase">US_Interventions</h1>
           <p className="text-xs text-gray-500 mt-1">SISTEMA DE ARCHIVOS CLASIFICADOS</p>
         </div>
 
