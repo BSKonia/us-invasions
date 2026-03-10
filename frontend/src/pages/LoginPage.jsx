@@ -6,25 +6,42 @@ import { Target, Lock, Mail, AlertTriangle } from 'lucide-react';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
-  const handleAuth = async (e) => {
+    const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      let result;
       if (isLogin) {
-        result = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
       } else {
-        result = await supabase.auth.signUp({ email, password });
+        if (!username.trim()) throw new Error("Debes proporcionar un Nombre de Usuario");
+        
+        const { data, error } = await supabase.auth.signUp({ 
+            email, 
+            password,
+            options: { data: { username: username } }
+        });
+        if (error) throw error;
+        
+        // Crear perfil público si el usuario se ha creado
+        if (data?.user) {
+            const { error: profileError } = await supabase.from('profiles').insert([{ 
+                id: data.user.id, 
+                username: username 
+            }]);
+            if (profileError && profileError.code !== '23505') { // ignorar si ya existe
+                console.error("Error creating profile", profileError);
+            }
+        }
       }
-
-      if (result.error) throw result.error;
       
       navigate('/dashboard');
     } catch (err) {
@@ -54,6 +71,22 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleAuth} className="space-y-4">
+
+          {!isLogin && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">NOMBRE EN CLAVE (USERNAME)</label>
+              <div className="relative">
+                <Target className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required={!isLogin}
+                  className="w-full bg-[#0a0a0a] border border-gray-700 text-gray-300 p-2 pl-10 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 transition-colors"
+                />
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs text-gray-500 mb-1">IDENTIFICACIÓN (EMAIL)</label>
             <div className="relative">

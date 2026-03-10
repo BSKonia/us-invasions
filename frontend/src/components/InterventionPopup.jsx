@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Popup } from 'react-map-gl/maplibre';
-import { Target, AlertTriangle, Clock, X, BrainCircuit, MessageSquare, Star, Send } from 'lucide-react';
+import { Target, AlertTriangle, Clock, X, BrainCircuit, MessageSquare, Star, Send, RefreshCw } from 'lucide-react';
 import { ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../services/supabaseClient';
@@ -30,9 +30,6 @@ export default function InterventionPopup({ feature, onClose }) {
   const [aiSourcesLoading, setAiSourcesLoading] = useState(false);
   const [aiSourcesError, setAiSourcesError] = useState(null);
 
-  // States for Source Modal
-  const [modalSource, setModalSource] = useState(null);
-
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -51,7 +48,6 @@ export default function InterventionPopup({ feature, onClose }) {
     setUserVoteState({ justification: 0, success: 0, impact: 0 });
     setAiSources(null);
     setAiSourcesError(null);
-    setModalSource(null);
     setActiveTab('summary');
   }, [feature]);
 
@@ -84,13 +80,11 @@ export default function InterventionPopup({ feature, onClose }) {
     }
   };
 
-  const fetchAiSources = async () => {
+  const fetchAiSources = async (force = false) => {
     setAiSourcesLoading(true);
     setAiSourcesError(null);
     try {
-      // 1. Mirar si ya había fuentes legacy en las properties (del JSON viejo) para mezclarlas o ignorarlas
-      // 2. Pedir las de la IA
-      const data = await getAiSources(feature.properties.id);
+      const data = await getAiSources(feature.properties.id, force);
       if (data && Array.isArray(data.sources)) {
         setAiSources(data.sources);
       } else {
@@ -266,23 +260,32 @@ export default function InterventionPopup({ feature, onClose }) {
                 </div>
               ) : aiSourcesError ? (
                 <p className="text-xs text-red-500 border border-red-900/50 bg-red-900/20 p-3 rounded">{aiSourcesError}</p>
-              ) : aiSources && aiSources.length > 0 ? (
-                 aiSources.map((src, i) => (
-                   <div 
-                     key={i} 
-                     className="bg-black p-3 border border-gray-800 rounded cursor-pointer hover:border-blue-500/50 transition-colors group"
-                     onClick={() => setModalSource(src)}
-                   >
-                     <div className="flex justify-between items-start mb-1">
-                       <span className="text-blue-400 font-bold text-xs group-hover:text-blue-300 flex items-center gap-1">
-                         {src.source_name} <ExternalLink size={10} />
-                       </span>
-                       <span className="text-[10px] text-gray-500 bg-gray-900 px-1.5 rounded">{src.date}</span>
+               ) : aiSources && aiSources.length > 0 ? (
+                 <>
+                   {aiSources.map((src, i) => (
+                     <div 
+                       key={i} 
+                       className="bg-black p-3 border border-gray-800 rounded cursor-pointer hover:border-blue-500/50 transition-colors group"
+                       onClick={() => window.open(src.url, '_blank', 'noopener,noreferrer')}
+                     >
+                       <div className="flex justify-between items-start mb-1">
+                         <span className="text-blue-400 font-bold text-xs group-hover:text-blue-300 flex items-center gap-1">
+                           {src.source_name} <ExternalLink size={10} />
+                         </span>
+                         <span className="text-[10px] text-gray-500 bg-gray-900 px-1.5 rounded">{src.date}</span>
+                       </div>
+                       <p className="text-xs text-white font-semibold mb-1">{src.headline}</p>
+                       <p className="text-[10px] text-gray-400 leading-tight">{src.snippet}</p>
                      </div>
-                     <p className="text-xs text-white font-semibold mb-1">{src.headline}</p>
-                     <p className="text-[10px] text-gray-400 leading-tight">{src.snippet}</p>
-                   </div>
-                 ))
+                   ))}
+                   <button
+                     onClick={() => fetchAiSources(true)}
+                     className="w-full mt-2 flex items-center justify-center gap-1 text-[10px] text-gray-500 hover:text-yellow-500 border border-gray-800 hover:border-yellow-500/50 py-1.5 rounded transition-colors cursor-pointer"
+                   >
+                     <RefreshCw size={10} />
+                     Regenerar fuentes
+                   </button>
+                 </>
               ) : (
                 <p className="text-xs text-gray-600 italic">No hay fuentes disponibles para este conflicto.</p>
               )}
@@ -349,7 +352,7 @@ export default function InterventionPopup({ feature, onClose }) {
                 ) : comments.length > 0 ? (
                   comments.map(c => (
                     <div key={c.id} className="bg-[#1a1a1a] p-2 rounded border border-gray-800">
-                      <p className="text-[10px] text-gray-500 mb-1">Usuario Anónimo • {new Date(c.created_at).toLocaleDateString()}</p>
+                      <p className="text-[10px] text-gray-500 mb-1"><span className="text-blue-400 font-bold">{c.username || 'Usuario Anónimo'}</span> • {new Date(c.created_at).toLocaleDateString()}</p>
                       <p className="text-xs text-gray-300">{c.content}</p>
                     </div>
                   ))
@@ -386,47 +389,6 @@ export default function InterventionPopup({ feature, onClose }) {
           )}
 
         </div>
-
-        {/* Source Iframe Modal */}
-        {modalSource && (
-          <div className="absolute inset-0 z-50 bg-[#0a0a0a] flex flex-col animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center p-3 border-b border-gray-800 bg-black shrink-0">
-              <div className="flex flex-col overflow-hidden pr-2">
-                <span className="text-xs font-bold text-blue-400 truncate">{modalSource.source_name}</span>
-                <span className="text-[10px] text-gray-500 truncate">{modalSource.headline}</span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <a 
-                  href={modalSource.url} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="text-[10px] bg-blue-900/30 text-blue-400 border border-blue-900/50 px-2 py-1 rounded hover:bg-blue-900/50 transition-colors flex items-center gap-1"
-                >
-                  ABRIR <ExternalLink size={10}/>
-                </a>
-                <button onClick={() => setModalSource(null)} className="text-gray-500 hover:text-white p-1">
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex-1 bg-white relative">
-              {/* Fallback for iframe blocking (X-Frame-Options) */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-[#111] z-0">
-                 <p className="text-sm text-gray-300 mb-2">Este sitio podría bloquear la visualización incrustada por seguridad.</p>
-                 <a href={modalSource.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline text-xs font-bold">Haz clic aquí para abrir en una nueva pestaña</a>
-              </div>
-              
-              {/* The Iframe */}
-              <iframe 
-                src={modalSource.url} 
-                className="w-full h-full relative z-10 bg-white" 
-                title="Source View"
-                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-              />
-            </div>
-          </div>
-        )}
 
       </div>
     </Popup>

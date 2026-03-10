@@ -4,7 +4,7 @@ import Map, { Source, Layer, Popup, Marker } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getInterventions } from '../services/apiClient';
 import { supabase } from '../services/supabaseClient';
-import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin } from 'lucide-react';
+import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Zap, MessageSquare, History } from 'lucide-react';
 import InterventionPopup from './InterventionPopup';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -14,61 +14,49 @@ export default function MapDashboard() {
   const mapRef = useRef();
   const navigate = useNavigate();
   const [data, setData] = useState({ type: "FeatureCollection", features: [] });
-  const [yearRange, setYearRange] = useState([1850, 2026]);
+  const [yearRange, setYearRange] = useState([1795, 1795]);
   const [hoverInfo, setHoverInfo] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // States para tracking de descubrimientos
+  // States para tracking de comentarios del usuario
   const [user, setUser] = useState(null);
-  const [discoveredIds, setDiscoveredIds] = useState([]);
-  const [showOnlyDiscovered, setShowOnlyDiscovered] = useState(false);
+  const [commentedIds, setCommentedIds] = useState([]);
+  const [showOnlyCommented, setShowOnlyCommented] = useState(false);
+  const [activeFilter, setActiveFilter] = useState(null); // null | 'actuales' | 'historico'
 
   useEffect(() => {
     checkUser();
     loadData();
-  }, [yearRange]);
+  }, []);
 
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setUser(user);
-      const { data: discoveries } = await supabase
-        .from('user_discovered_interventions')
+      // Fetch intervention IDs where this user has commented
+      const { data: comments } = await supabase
+        .from('intervention_comments')
         .select('intervention_id')
         .eq('user_id', user.id);
       
-      if (discoveries) {
-        setDiscoveredIds(discoveries.map(d => d.intervention_id));
+      if (comments) {
+        const uniqueIds = [...new Set(comments.map(c => c.intervention_id))];
+        setCommentedIds(uniqueIds);
       }
     }
   };
 
-  const markAsDiscovered = async (interventionId) => {
-    if (!user || discoveredIds.includes(interventionId)) return;
-
-    try {
-      const { error } = await supabase.from('user_discovered_interventions').insert([{
-        user_id: user.id,
-        intervention_id: interventionId
-      }]);
-
-      if (!error) {
-        setDiscoveredIds(prev => [...prev, interventionId]);
-      }
-    } catch (err) {
-      console.error("Error al registrar descubrimiento:", err);
-    }
-  };
 
   const loadData = async () => {
-    const geojsonData = await getInterventions(1850, 2026); // load all for timeline/chart
+    const geojsonData = await getInterventions(1795, 2026); // load all for timeline/chart
     setData(geojsonData);
   };
 
   const handleYearChange = (e) => {
-    setYearRange([parseInt(e.target.value), 2026]);
+    setYearRange([1795, parseInt(e.target.value)]);
+    setActiveFilter(null); // Deselect buttons when user manually adjusts slider
   };
 
   const onPointClick = (event) => {
@@ -80,7 +68,6 @@ export default function MapDashboard() {
         duration: 1500
       });
       setSelectedEvent(feature);
-      markAsDiscovered(feature.properties.id);
     }
   };
 
@@ -101,8 +88,8 @@ export default function MapDashboard() {
 
   const filteredData = useMemo(() => {
     let features = data.features;
-    if (showOnlyDiscovered) {
-      features = features.filter(f => discoveredIds.includes(f.properties.id));
+    if (showOnlyCommented) {
+      features = features.filter(f => commentedIds.includes(f.properties.id));
     }
     // Filter by year range
     features = features.filter(f => f.properties.start_year >= yearRange[0] && f.properties.start_year <= yearRange[1]);
@@ -114,23 +101,23 @@ export default function MapDashboard() {
       ...data,
       features
     };
-  }, [data, showOnlyDiscovered, discoveredIds, yearRange]);
+  }, [data, showOnlyCommented, commentedIds, yearRange]);
 
-  // Data for Global Tension Index (events per decade)
+  // Data for Global Tension Index (events per 25-year period)
   const chartData = useMemo(() => {
-    const decades = {};
+    const periods = {};
     data.features.forEach(f => {
       const year = f.properties.start_year;
-      const decade = Math.floor(year / 10) * 10;
-      decades[decade] = (decades[decade] || 0) + 1;
+      const periodStart = Math.floor(year / 25) * 25;
+      periods[periodStart] = (periods[periodStart] || 0) + 1;
     });
     
-    return Object.entries(decades)
-      .map(([decade, count]) => ({
-        decade: `${decade}s`,
+    return Object.entries(periods)
+      .map(([periodStart, count]) => ({
+        period: `${periodStart}`,
         events: count
       }))
-      .sort((a, b) => parseInt(a.decade) - parseInt(b.decade));
+      .sort((a, b) => parseInt(a.period) - parseInt(b.period));
   }, [data.features]);
 
   return (
@@ -177,15 +164,15 @@ export default function MapDashboard() {
           
           {user && (
             <button
-              onClick={() => setShowOnlyDiscovered(!showOnlyDiscovered)}
+              onClick={() => setShowOnlyCommented(!showOnlyCommented)}
               className={`mt-4 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
-                showOnlyDiscovered 
+                showOnlyCommented 
                 ? 'bg-red-900/30 text-red-400 border-red-500/50' 
                 : 'bg-black text-gray-400 border-gray-700 hover:border-gray-500'
               }`}
             >
-              <Eye size={14} />
-              {showOnlyDiscovered ? 'MOSTRANDO SOLO ANALIZADOS' : 'MOSTRAR SOLO ANALIZADOS'}
+              <MessageSquare size={14} />
+              {showOnlyCommented ? 'MOSTRANDO SOLO COMENTADOS' : 'MOSTRAR SOLO COMENTADOS'}
             </button>
           )}
 
@@ -195,13 +182,25 @@ export default function MapDashboard() {
               <TrendingUp size={14} className="text-red-500" />
               ÍNDICE DE ACTIVIDAD GLOBAL
             </h3>
-            <div className="h-24 w-full">
+            <div className="h-32 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
+                <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                  <XAxis 
+                    dataKey="period" 
+                    tick={{ fontSize: 9, fill: '#666' }} 
+                    axisLine={{ stroke: '#333' }}
+                    tickLine={false}
+                    interval={0}
+                    angle={-45}
+                    textAnchor="end"
+                    height={35}
+                  />
+                  <YAxis hide />
                   <Tooltip 
                     cursor={{fill: '#222'}} 
                     contentStyle={{backgroundColor: '#000', borderColor: '#333', fontSize: '12px'}}
                     itemStyle={{color: '#ff003c'}}
+                    labelFormatter={(label) => `${label} - ${parseInt(label) + 24}`}
                   />
                   <Bar dataKey="events" fill="#ff003c" radius={[2, 2, 0, 0]} />
                 </BarChart>
@@ -212,19 +211,18 @@ export default function MapDashboard() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
           {filteredData.features.map((feature) => {
-            const isDiscovered = discoveredIds.includes(feature.properties.id);
+            const hasCommented = commentedIds.includes(feature.properties.id);
             return (
               <div 
                 key={feature.properties.id}
                 className={`p-4 bg-[#1a1a1a] border rounded cursor-pointer transition-all hover:bg-[#222] ${
-                  isDiscovered ? 'border-red-500/30' : 'border-gray-800 hover:border-gray-600'
+                  hasCommented ? 'border-red-500/30' : 'border-gray-800 hover:border-gray-600'
                 }`}
                 onMouseEnter={() => setHoverInfo(feature.properties)}
                 onMouseLeave={() => setHoverInfo(null)}
                 onClick={() => {
                   mapRef.current?.flyTo({ center: feature.geometry.coordinates, zoom: 6 });
                   setSelectedEvent(feature);
-                  markAsDiscovered(feature.properties.id);
                 }}
               >
                 <div className="flex justify-between items-start mb-2">
@@ -232,7 +230,7 @@ export default function MapDashboard() {
                     {feature.properties.start_year}
                   </span>
                   <div className="flex items-center gap-2">
-                    {isDiscovered && <Eye size={12} className="text-red-500" title="Analizado" />}
+                    {hasCommented && <MessageSquare size={12} className="text-red-500" title="Comentado" />}
                     <span className="text-[10px] uppercase tracking-widest" style={{ color: feature.properties.color_code }}>
                       {feature.properties.type_name}
                     </span>
@@ -245,17 +243,49 @@ export default function MapDashboard() {
           })}
         </div>
 
+        {/* Quick Action Buttons */}
+        <div className="px-6 pt-4 pb-2 bg-[#0a0a0a] border-t border-gray-800 flex gap-2">
+          <button
+            onClick={() => {
+              setActiveFilter(activeFilter === 'actuales' ? null : 'actuales');
+              setYearRange(activeFilter === 'actuales' ? [1795, 1795] : [2020, 2026]);
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded transition-colors border ${
+              activeFilter === 'actuales'
+                ? 'bg-red-600 hover:bg-red-700 text-white border-red-500/50'
+                : 'bg-black hover:bg-[#1a1a1a] text-gray-300 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            <Zap size={13} />
+            CONFLICTOS ACTUALES
+          </button>
+          <button
+            onClick={() => {
+              setActiveFilter(activeFilter === 'historico' ? null : 'historico');
+              setYearRange(activeFilter === 'historico' ? [1795, 1795] : [1795, 2026]);
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded transition-colors border ${
+              activeFilter === 'historico'
+                ? 'bg-red-600 hover:bg-red-700 text-white border-red-500/50'
+                : 'bg-black hover:bg-[#1a1a1a] text-gray-300 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            <History size={13} />
+            HISTÓRICO TOTAL
+          </button>
+        </div>
+
         {/* Timeline Slider */}
-        <div className="p-6 bg-[#0a0a0a] border-t border-gray-800">
+        <div className="px-6 pb-6 pt-3 bg-[#0a0a0a]">
           <label className="text-xs text-gray-400 flex justify-between mb-4">
-            <span>AÑO DE INICIO: <strong className="text-red-500">{yearRange[0]}</strong></span>
-            <span>2026</span>
+            <span>DESDE: <strong className="text-red-500">{yearRange[0]}</strong></span>
+            <span>HASTA: <strong className="text-red-500">{yearRange[1]}</strong></span>
           </label>
           <input 
             type="range" 
-            min="1850" 
+            min="1795" 
             max="2026" 
-            value={yearRange[0]}
+            value={yearRange[1]}
             onChange={handleYearChange}
             className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-500"
           />
@@ -297,7 +327,6 @@ export default function MapDashboard() {
                 e.originalEvent.stopPropagation();
                 mapRef.current?.flyTo({ center: feature.geometry.coordinates, zoom: 6 });
                 setSelectedEvent(feature);
-                markAsDiscovered(feature.properties.id);
               }}
             >
               <div 
@@ -328,6 +357,7 @@ export default function MapDashboard() {
           )}
         </Map>
 
+
       {/* Map Legend */}
       <div className="absolute bottom-6 right-6 bg-[#111] border border-gray-800 p-4 rounded-lg shadow-2xl z-20">
         <h4 className="text-xs text-gray-400 font-bold mb-3 uppercase tracking-wider border-b border-gray-800 pb-2">Clasificación</h4>
@@ -336,6 +366,8 @@ export default function MapDashboard() {
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ff5500]"></div><span className="text-xs text-gray-300">Bombardeo</span></div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ff0055]"></div><span className="text-xs text-gray-300">Ocupación Militar</span></div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ffaa00]"></div><span className="text-xs text-gray-300">Injerencia Política</span></div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#0088ff]"></div><span className="text-xs text-gray-300">Operación Naval</span></div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#aa00ff]"></div><span className="text-xs text-gray-300">Operación Encubierta</span></div>
         </div>
       </div>
 

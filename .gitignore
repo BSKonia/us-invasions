@@ -54,6 +54,7 @@ env/
 # ========================
 .DS_Store
 Thumbs.db
+NUL
 .vscode/
 .idea/
 *.suo

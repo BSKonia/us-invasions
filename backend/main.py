@@ -5,7 +5,9 @@ from typing import List, Optional
 import os
 import httpx
 import json
+import asyncio
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,11 +32,38 @@ else:
     client_genai = None
 
 # ================================
+# Fuentes de referencia académicas (SIEMPRE disponibles, verificadas)
+# ================================
+REFERENCE_SOURCES = [
+    {
+        "source_name": "Evergreen State College (Zoltan Grossman)",
+        "date": "1798-2024",
+        "headline": "A Century of U.S. Military Interventions: From Wounded Knee to Libya",
+        "url": "https://sites.evergreen.edu/zoltan/interventions/",
+        "snippet": "Lista académica exhaustiva de todas las intervenciones militares de EE.UU. desde 1890 hasta la actualidad, compilada por el profesor Zoltan Grossman."
+    },
+    {
+        "source_name": "Global Policy Forum",
+        "date": "1798-2023",
+        "headline": "US Interventions from 1798 to the Present",
+        "url": "https://archive.globalpolicy.org/us-westward-expansion/26024-us-interventions.html",
+        "snippet": "Archivo histórico del Global Policy Forum con el registro completo de intervenciones estadounidenses desde la expansión territorial de 1798."
+    },
+    {
+        "source_name": "Harvard DRCLAS (ReVista)",
+        "date": "Artículo académico",
+        "headline": "United States Interventions in Latin America and Beyond",
+        "url": "https://revista.drclas.harvard.edu/united-states-interventions/",
+        "snippet": "Análisis académico de Harvard sobre el patrón histórico de intervenciones de Estados Unidos, con enfoque en América Latina y sus consecuencias geopolíticas."
+    },
+]
+
+# ================================
 # INTERVENCIONES
 # ================================
 @app.get("/api/interventions")
 async def get_interventions(
-    start_year: int = Query(1850, description="Año de inicio"),
+    start_year: int = Query(1795, description="Año de inicio"),
     end_year: int = Query(2026, description="Año de fin"),
     type_id: Optional[str] = Query(None, description="Filtrar por tipo de intervención")
 ):
@@ -163,8 +192,64 @@ Formato: Markdown (usa negritas para nombres y fechas clave). No pongas el títu
             raise HTTPException(status_code=500, detail=f"Error al generar con IA: {str(e)}")
 
 
+@app.delete("/api/interventions/ai_sources/cache")
+async def clear_all_ai_sources_cache():
+    """Limpia la caché de ai_sources de TODAS las intervenciones para forzar regeneración con el nuevo prompt."""
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    async with httpx.AsyncClient() as client:
+        # Set ai_sources to null for all interventions that have cached sources
+        res = await client.patch(
+            f"{SUPABASE_URL}/rest/v1/interventions?ai_sources=not.is.null",
+            headers=headers,
+            json={"ai_sources": None}
+        )
+        if res.status_code in [200, 204]:
+            return {"message": "Caché de fuentes IA limpiada correctamente", "cleared": True}
+        raise HTTPException(status_code=res.status_code, detail=f"No se pudo limpiar la caché: {res.text}")
+
+
+# ================================
+# Verificación de URLs
+# ================================
+async def verify_url(http_client: httpx.AsyncClient, url: str) -> bool:
+    """Verifica que una URL esté viva (no 404) usando HEAD con fallback a GET."""
+    try:
+        # HEAD es más rápido, pero algunos servidores no lo soportan
+        res = await http_client.head(url, follow_redirects=True, timeout=8.0)
+        if res.status_code < 400:
+            return True
+        # Algunos servidores rechazan HEAD pero aceptan GET
+        if res.status_code in [403, 405, 406]:
+            res = await http_client.get(url, follow_redirects=True, timeout=8.0)
+            return res.status_code < 400
+        return False
+    except Exception:
+        return False
+
+
+async def verify_and_filter_sources(http_client: httpx.AsyncClient, sources: list) -> list:
+    """Verifica todas las URLs en paralelo y devuelve solo las que funcionan."""
+    if not sources:
+        return []
+    
+    async def check_source(source):
+        url = source.get("url", "")
+        if not url:
+            return None
+        is_valid = await verify_url(http_client, url)
+        return source if is_valid else None
+    
+    results = await asyncio.gather(*[check_source(s) for s in sources])
+    return [s for s in results if s is not None]
+
+
 @app.get("/api/interventions/{intervention_id}/ai_sources")
-async def get_intervention_ai_sources(intervention_id: str):
+async def get_intervention_ai_sources(intervention_id: str, force: bool = Query(False, description="Forzar regeneración ignorando caché")):
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -172,9 +257,9 @@ async def get_intervention_ai_sources(intervention_id: str):
         "Prefer": "return=representation"
     }
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": "Mozilla/5.0 (compatible; USInterventions/1.0)"}) as http_client:
         # 1. Comprobar caché
-        res = await client.get(
+        res = await http_client.get(
             f"{SUPABASE_URL}/rest/v1/interventions?id=eq.{intervention_id}&select=ai_sources,title,country_name,start_year",
             headers=headers
         )
@@ -185,51 +270,135 @@ async def get_intervention_ai_sources(intervention_id: str):
             
         intervention = data[0]
         
-        # Si ya existen, las devolvemos
-        if intervention.get("ai_sources"):
+        # Si ya existen y no se fuerza regeneración, las devolvemos
+        if intervention.get("ai_sources") and not force:
             return {"sources": intervention["ai_sources"], "cached": True}
             
         if not client_genai:
             raise HTTPException(status_code=500, detail="Gemini API no configurada")
 
-        prompt = f'''Actúa como un archivero histórico. Para la intervención "{intervention.get('title')}" ({intervention.get('start_year')}) en {intervention.get('country_name')}, proporciona 5 referencias a periódicos, fuentes oficiales o documentos desclasificados.
+        title = intervention.get('title', '')
+        country = intervention.get('country_name', '')
+        year = intervention.get('start_year', '')
 
-DEVUELVE ÚNICAMENTE UN ARRAY JSON con esta estructura exacta (sin texto Markdown alrededor, solo los corchetes y llaves):
-[
-  {{
-    "source_name": "Nombre del periódico/documento (Ej: The New York Times)",
-    "date": "Fecha (Ej: 20 Dic 1989)",
-    "headline": "Titular de la noticia",
-    "url": "https://es.wikipedia.org/wiki/Especial:Buscar?search=...", 
-    "snippet": "Un breve resumen de 2 líneas."
-  }}
-]
-Asegúrate de que la URL sea un enlace de búsqueda válido en Wikipedia o un buscador para evitar links rotos.
-'''
+        # ===================================================
+        # ESTRATEGIA: 3 fuentes fijas + 2-4 fuentes de Gemini con Grounding + verificación HTTP
+        # ===================================================
+
+        # Paso 1: Las 3 fuentes de referencia académicas (SIEMPRE funcionan)
+        reference_sources = [dict(s) for s in REFERENCE_SOURCES]  # Copias para no mutar
+
+        # Paso 2: Pedir a Gemini fuentes adicionales específicas con Google Search Grounding
+        ai_verified_sources = []
         try:
+            prompt = (
+                f'Busca artículos de prensa y documentos académicos REALES sobre: '
+                f'"{title}" ({year}) en {country}, intervención de Estados Unidos.\n\n'
+                f'Necesito exactamente 4 fuentes periodísticas o académicas que pueda consultar online ahora mismo.\n\n'
+                f'REGLAS ESTRICTAS:\n'
+                f'- SOLO incluye URLs que existan REALMENTE y que hayas encontrado en tu búsqueda de Google.\n'
+                f'- Prioriza: artículos de prensa (NYT, BBC, Reuters, The Guardian, Washington Post, AP News), '
+                f'documentos PDF académicos, informes del Congressional Research Service, National Security Archive, JSTOR.\n'
+                f'- Si encuentras un PDF académico relevante, inclúyelo con su URL directa.\n'
+                f'- NO inventes URLs. NO uses Wikipedia.\n'
+                f'- Varía las fuentes: usa al menos 3 medios diferentes.\n\n'
+                f'DEVUELVE SOLO un array JSON (sin markdown, sin ```), con esta estructura:\n'
+                f'[\n'
+                f'  {{\n'
+                f'    "source_name": "Nombre del medio",\n'
+                f'    "date": "Fecha publicación",\n'
+                f'    "headline": "Titular exacto del artículo",\n'
+                f'    "url": "https://url-real-verificada",\n'
+                f'    "snippet": "Resumen de 1-2 líneas."\n'
+                f'  }}\n'
+                f']'
+            )
+
             ai_response = client_genai.models.generate_content(
                 model='gemini-2.5-flash',
-                contents=prompt
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                )
             )
-            raw_text = ai_response.text
-            
-            # Limpiar posible markdown residual (```json ... ```)
+            raw_text = ai_response.text or ""
+
+            # Recopilar todas las URLs candidatas: del JSON de Gemini + del grounding metadata
+            candidate_sources = []
+
+            # 2a. Intentar parsear el JSON de la respuesta de texto
             clean_text = raw_text.replace("```json", "").replace("```", "").strip()
-            sources_json = json.loads(clean_text)
-            
-            # Guardar en base de datos
-            await client.patch(
-                f"{SUPABASE_URL}/rest/v1/interventions?id=eq.{intervention_id}",
-                headers=headers,
-                json={"ai_sources": sources_json}
-            )
-            
-            return {"sources": sources_json, "cached": False}
-        except json.JSONDecodeError:
-             raise HTTPException(status_code=500, detail="Error parseando el JSON de Gemini: " + raw_text)
+            try:
+                parsed_sources = json.loads(clean_text)
+                if isinstance(parsed_sources, list):
+                    candidate_sources.extend(parsed_sources)
+            except json.JSONDecodeError:
+                pass
+
+            # 2b. Extraer URLs del grounding metadata (son URLs que Google realmente encontró)
+            grounded_urls = []
+            if ai_response.candidates and ai_response.candidates[0].grounding_metadata:
+                gm = ai_response.candidates[0].grounding_metadata
+                if gm.grounding_chunks:
+                    for chunk in gm.grounding_chunks:
+                        if chunk.web and chunk.web.uri:
+                            grounded_urls.append({
+                                "uri": chunk.web.uri,
+                                "title": chunk.web.title or "",
+                                "domain": chunk.web.domain or ""
+                            })
+
+            # Añadir grounding URLs que no estén ya en los candidatos
+            candidate_urls = {s.get("url", "") for s in candidate_sources}
+            for g_url in grounded_urls:
+                if g_url["uri"] not in candidate_urls:
+                    candidate_sources.append({
+                        "source_name": g_url.get("domain", "Fuente verificada"),
+                        "date": str(year),
+                        "headline": g_url.get("title", f"Artículo sobre {title}"),
+                        "url": g_url["uri"],
+                        "snippet": f"Fuente encontrada por Google sobre {title} ({year}) en {country}."
+                    })
+                    candidate_urls.add(g_url["uri"])
+
+            # Paso 3: VERIFICAR cada URL con HTTP HEAD/GET (en paralelo)
+            if candidate_sources:
+                print(f"[SOURCES] Verificando {len(candidate_sources)} URLs candidatas para '{title}'...")
+                ai_verified_sources = await verify_and_filter_sources(http_client, candidate_sources)
+                print(f"[SOURCES] {len(ai_verified_sources)}/{len(candidate_sources)} URLs verificadas OK")
+
         except Exception as e:
-            print("GEMINI ERROR:", e)
-            raise HTTPException(status_code=500, detail=f"Error al generar fuentes: {str(e)}")
+            print(f"[SOURCES] Error en Gemini Grounding: {e}")
+            # Si Gemini falla, seguimos con las fuentes de referencia
+
+        # Paso 4: Combinar fuentes de referencia + fuentes verificadas de la IA
+        # Primero las fuentes de la IA (más específicas), luego las de referencia
+        final_sources = []
+        seen_urls = set()
+
+        # Añadir fuentes verificadas de IA (máximo 4)
+        for source in ai_verified_sources[:4]:
+            url = source.get("url", "")
+            if url and url not in seen_urls:
+                final_sources.append(source)
+                seen_urls.add(url)
+
+        # Completar con fuentes de referencia hasta tener al menos 5
+        for ref_source in reference_sources:
+            if len(final_sources) >= 7:
+                break
+            if ref_source["url"] not in seen_urls:
+                final_sources.append(ref_source)
+                seen_urls.add(ref_source["url"])
+
+        # Guardar en base de datos
+        await http_client.patch(
+            f"{SUPABASE_URL}/rest/v1/interventions?id=eq.{intervention_id}",
+            headers=headers,
+            json={"ai_sources": final_sources}
+        )
+        
+        return {"sources": final_sources, "cached": False}
 
 # ================================
 # SISTEMA SOCIAL: COMENTARIOS
@@ -241,10 +410,17 @@ class CommentCreate(BaseModel):
 async def get_comments(intervention_id: str):
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     async with httpx.AsyncClient() as client:
+        # Try to read from the view that joins comments with usernames
         res = await client.get(
-            f"{SUPABASE_URL}/rest/v1/intervention_comments?intervention_id=eq.{intervention_id}&order=created_at.desc",
+            f"{SUPABASE_URL}/rest/v1/comments_with_users?intervention_id=eq.{intervention_id}&order=created_at.desc",
             headers=headers
         )
+        if res.status_code != 200 or "details" in res.text.lower() or "404" in str(res.status_code):
+            # Fallback to normal comments if the view is not created yet
+            res = await client.get(
+                f"{SUPABASE_URL}/rest/v1/intervention_comments?intervention_id=eq.{intervention_id}&order=created_at.desc",
+                headers=headers
+            )
         return res.json()
 
 @app.post("/api/interventions/{intervention_id}/comments")
@@ -353,17 +529,28 @@ def get_icon(type_name):
     if "bombardeo" in type_name or "ataque" in type_name: return "💣"
     if "ocupación" in type_name or "militar" in type_name: return "🛡️"
     if "injerencia" in type_name or "política" in type_name: return "🤝"
+    if "naval" in type_name: return "⚓"
+    if "encubierta" in type_name or "clandestina" in type_name: return "🕵️"
     return "📍"
 
 def generate_tags(item):
     tags = [f"#{item['country_name'].replace(' ', '')}"]
     year = item['start_year']
-    if 1947 <= year <= 1991:
+    if year < 1850:
+        tags.append("#ExpansiónTemprana")
+    elif 1850 <= year < 1900:
+        tags.append("#EraImperial")
+    elif 1900 <= year < 1947:
+        tags.append("#DiplomaciaDelDólar")
+    elif 1947 <= year <= 1991:
         tags.append("#GuerraFría")
     elif year > 2001:
         tags.append("#WarOnTerror")
         
     type_name = item.get("intervention_types", {}).get("name", "").lower()
-    if "cia" in str(item.get("description", "")).lower() or "injerencia" in type_name:
+    desc = str(item.get("description", "")).lower()
+    if "cia" in desc or "encubierta" in type_name:
         tags.append("#CovertOps")
+    if "naval" in type_name:
+        tags.append("#Naval")
     return tags

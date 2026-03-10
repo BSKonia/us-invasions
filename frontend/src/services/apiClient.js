@@ -80,14 +80,25 @@ export const addVote = async (interventionId, category, score, token) => {
   }
 };
 
-export default apiClient;
-
-export const getAiSources = async (interventionId) => {
+export const getAiSources = async (interventionId, force = false) => {
   try {
-    const response = await apiClient.get(`/interventions/${interventionId}/ai_sources`);
+    const params = force ? { force: true } : {};
+    const response = await apiClient.get(`/interventions/${interventionId}/ai_sources`, { params });
     return response.data;
   } catch (error) {
     console.error('Error fetching AI sources:', error);
     return null;
   }
 };
+
+export const clearAiSourcesCache = async () => {
+  try {
+    const response = await apiClient.delete('/interventions/ai_sources/cache');
+    return response.data;
+  } catch (error) {
+    console.error('Error clearing AI sources cache:', error);
+    throw error;
+  }
+};
+
+export default apiClient;
