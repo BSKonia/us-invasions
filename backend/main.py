@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import re
 import httpx
 import json
 import asyncio
@@ -57,6 +58,109 @@ REFERENCE_SOURCES = [
         "snippet": "Análisis académico de Harvard sobre el patrón histórico de intervenciones de Estados Unidos, con enfoque en América Latina y sus consecuencias geopolíticas."
     },
 ]
+
+# ================================
+# Generador de URLs de búsqueda en prensa (SIEMPRE funcionan)
+# ================================
+PRESS_SEARCH_TEMPLATES = [
+    {
+        "source_name": "The New York Times",
+        "base_url": "https://www.nytimes.com/search?query=",
+        "snippet_tpl": "Archivo de artículos del New York Times sobre {title}. Búsqueda en la hemeroteca digital del NYT."
+    },
+    {
+        "source_name": "BBC News",
+        "base_url": "https://www.bbc.co.uk/search?q=",
+        "snippet_tpl": "Cobertura de la BBC sobre {title}. Resultados de búsqueda en el archivo digital de BBC News."
+    },
+    {
+        "source_name": "The Guardian",
+        "base_url": "https://www.theguardian.com/search?q=",
+        "snippet_tpl": "Reportajes y análisis de The Guardian sobre {title}. Archivo periodístico con cobertura internacional."
+    },
+    {
+        "source_name": "Reuters",
+        "base_url": "https://www.reuters.com/search/news?query=",
+        "snippet_tpl": "Despachos de la agencia Reuters sobre {title}. Cobertura informativa de referencia mundial."
+    },
+    {
+        "source_name": "AP News",
+        "base_url": "https://apnews.com/search?q=",
+        "snippet_tpl": "Noticias de Associated Press sobre {title}. Archivo de la principal agencia de noticias de EE.UU."
+    },
+]
+
+# Diccionario para traducir términos españoles comunes en títulos/tipos a inglés
+_ES_TO_EN = {
+    "golpe de estado": "coup",
+    "bombardeo": "bombing",
+    "ocupación militar": "military occupation",
+    "ocupacion militar": "military occupation",
+    "injerencia política": "political interference",
+    "injerencia politica": "political interference",
+    "operación naval": "naval operation",
+    "operacion naval": "naval operation",
+    "operación encubierta": "covert operation",
+    "operacion encubierta": "covert operation",
+    "intervención militar": "military intervention",
+    "intervencion militar": "military intervention",
+    "intervención": "intervention",
+    "intervencion": "intervention",
+    "invasión": "invasion",
+    "invasion": "invasion",
+    "guerra": "war",
+    "apoyo": "support",
+    "derrocamiento": "overthrow",
+    "bloqueo": "blockade",
+    "ocupación": "occupation",
+    "ocupacion": "occupation",
+    "contra": "against",
+}
+
+# Preposiciones/artículos españoles que sobran en keywords inglesas
+_ES_STOPWORDS = {"en", "de", "del", "la", "las", "el", "los", "y", "por", "una", "un", "al"}
+
+def _translate_to_english(text: str) -> str:
+    """Traduce términos españoles conocidos a inglés para mejorar búsquedas en prensa anglosajona."""
+    result = text
+    # Reemplazar frases completas primero (más largas primero para evitar reemplazos parciales)
+    for es_term, en_term in sorted(_ES_TO_EN.items(), key=lambda x: -len(x[0])):
+        result = re.sub(re.escape(es_term), en_term, result, flags=re.IGNORECASE)
+    # Eliminar preposiciones/artículos españoles sueltos que queden
+    words = result.split()
+    words = [w for w in words if w.lower() not in _ES_STOPWORDS]
+    return " ".join(words)
+
+
+def generate_press_search_sources(title: str, country: str, year) -> list:
+    """Genera URLs de búsqueda en archivos de prensa para una intervención.
+    Estas URLs SIEMPRE funcionan porque apuntan a páginas de búsqueda, no a artículos concretos.
+    Las keywords se construyen EN INGLÉS para que NYT, BBC, Reuters etc. devuelvan resultados."""
+    from urllib.parse import quote_plus
+    
+    # Traducir el título a inglés si contiene términos en español
+    en_title = _translate_to_english(title)
+    
+    # Evitar redundancia: si el país ya aparece en el título, no repetirlo
+    if country.lower() in en_title.lower():
+        keywords = f"US {en_title} {year}"
+    else:
+        keywords = f"US {country} {en_title} {year}"
+    
+    # Limpiar espacios múltiples
+    keywords = " ".join(keywords.split())
+    encoded = quote_plus(keywords)
+    
+    sources = []
+    for tpl in PRESS_SEARCH_TEMPLATES:
+        sources.append({
+            "source_name": tpl["source_name"],
+            "date": str(year),
+            "headline": f"Búsqueda: \"{en_title}\" — {country} ({year})",
+            "url": f"{tpl['base_url']}{encoded}",
+            "snippet": tpl["snippet_tpl"].format(title=f"{en_title} — {country} ({year})")
+        })
+    return sources
 
 # ================================
 # INTERVENCIONES
@@ -282,7 +386,8 @@ async def get_intervention_ai_sources(intervention_id: str, force: bool = Query(
         year = intervention.get('start_year', '')
 
         # ===================================================
-        # ESTRATEGIA: 3 fuentes fijas + 2-4 fuentes de Gemini con Grounding + verificación HTTP
+        # ESTRATEGIA: Fuentes IA verificadas + 5 búsquedas en prensa + 3 referencias académicas
+        # Sin límite fijo: cada intervención puede tener tantas fuentes como encuentre
         # ===================================================
 
         # Paso 1: Las 3 fuentes de referencia académicas (SIEMPRE funcionan)
@@ -371,22 +476,28 @@ async def get_intervention_ai_sources(intervention_id: str, force: bool = Query(
             print(f"[SOURCES] Error en Gemini Grounding: {e}")
             # Si Gemini falla, seguimos con las fuentes de referencia
 
-        # Paso 4: Combinar fuentes de referencia + fuentes verificadas de la IA
-        # Primero las fuentes de la IA (más específicas), luego las de referencia
+        # Paso 4: Combinar TODAS las fuentes (sin límites artificiales)
+        # Orden: fuentes IA verificadas → fuentes de prensa (búsqueda) → referencias académicas
         final_sources = []
         seen_urls = set()
 
-        # Añadir fuentes verificadas de IA (máximo 4)
-        for source in ai_verified_sources[:4]:
+        # 4a. Añadir TODAS las fuentes verificadas de IA (sin cap)
+        for source in ai_verified_sources:
             url = source.get("url", "")
             if url and url not in seen_urls:
                 final_sources.append(source)
                 seen_urls.add(url)
 
-        # Completar con fuentes de referencia hasta tener al menos 5
+        # 4b. Añadir URLs de búsqueda en prensa (siempre funcionan)
+        press_sources = generate_press_search_sources(title, country, year)
+        for ps in press_sources:
+            url = ps.get("url", "")
+            if url and url not in seen_urls:
+                final_sources.append(ps)
+                seen_urls.add(url)
+
+        # 4c. Añadir TODAS las fuentes de referencia académicas (siempre)
         for ref_source in reference_sources:
-            if len(final_sources) >= 7:
-                break
             if ref_source["url"] not in seen_urls:
                 final_sources.append(ref_source)
                 seen_urls.add(ref_source["url"])
