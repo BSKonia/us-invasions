@@ -281,14 +281,27 @@ export default function MapDashboard() {
             <span>DESDE: <strong className="text-red-500">{yearRange[0]}</strong></span>
             <span>HASTA: <strong className="text-red-500">{yearRange[1]}</strong></span>
           </label>
-          <input 
-            type="range" 
-            min="1795" 
-            max="2026" 
-            value={yearRange[1]}
-            onChange={handleYearChange}
-            className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-500"
-          />
+          <div className="relative">
+            {/* Year tooltip above thumb */}
+            <div
+              className="absolute -top-7 transform -translate-x-1/2 pointer-events-none"
+              style={{
+                left: `${((yearRange[1] - 1795) / (2026 - 1795)) * 100}%`
+              }}
+            >
+              <span className="bg-red-600 text-white text-[11px] font-bold px-2 py-0.5 rounded shadow-lg">
+                {yearRange[1]}
+              </span>
+            </div>
+            <input 
+              type="range" 
+              min="1795" 
+              max="2026" 
+              value={yearRange[1]}
+              onChange={handleYearChange}
+              className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+            />
+          </div>
         </div>
         </div> {/* End of minWidth wrapper */}
       </div>
@@ -368,6 +381,8 @@ export default function MapDashboard() {
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ffaa00]"></div><span className="text-xs text-gray-300">Injerencia Política</span></div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#0088ff]"></div><span className="text-xs text-gray-300">Operación Naval</span></div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#aa00ff]"></div><span className="text-xs text-gray-300">Operación Encubierta</span></div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#006400]"></div><span className="text-xs text-gray-300">Acciones WW1</span></div>
+          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#32CD32]"></div><span className="text-xs text-gray-300">Acciones WW2</span></div>
         </div>
       </div>
 

@@ -115,6 +115,8 @@ _ES_TO_EN = {
     "ocupación": "occupation",
     "ocupacion": "occupation",
     "contra": "against",
+    "acciones ww1": "World War 1",
+    "acciones ww2": "World War 2",
 }
 
 # Preposiciones/artículos españoles que sobran en keywords inglesas
@@ -642,12 +644,21 @@ def get_icon(type_name):
     if "injerencia" in type_name or "política" in type_name: return "🤝"
     if "naval" in type_name: return "⚓"
     if "encubierta" in type_name or "clandestina" in type_name: return "🕵️"
+    if "ww1" in type_name: return "⚔️"
+    if "ww2" in type_name: return "🪖"
     return "📍"
 
 def generate_tags(item):
     tags = [f"#{item['country_name'].replace(' ', '')}"]
     year = item['start_year']
-    if year < 1850:
+    type_name = item.get("intervention_types", {}).get("name", "").lower()
+    
+    # Era tags
+    if "ww1" in type_name:
+        tags.append("#WW1")
+    elif "ww2" in type_name:
+        tags.append("#WW2")
+    elif year < 1850:
         tags.append("#ExpansiónTemprana")
     elif 1850 <= year < 1900:
         tags.append("#EraImperial")
@@ -658,7 +669,6 @@ def generate_tags(item):
     elif year > 2001:
         tags.append("#WarOnTerror")
         
-    type_name = item.get("intervention_types", {}).get("name", "").lower()
     desc = str(item.get("description", "")).lower()
     if "cia" in desc or "encubierta" in type_name:
         tags.append("#CovertOps")
