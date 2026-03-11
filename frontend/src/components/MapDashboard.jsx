@@ -142,6 +142,20 @@ export default function MapDashboard() {
       .sort((a, b) => parseInt(a.period) - parseInt(b.period));
   }, [data.features, selectedType]);
 
+  // Counts per type (respecting yearRange) for the filter dropdown
+  const typeCounts = useMemo(() => {
+    const yearFiltered = data.features.filter(
+      f => f.properties.start_year >= yearRange[0] && f.properties.start_year <= yearRange[1]
+    );
+    const counts = {};
+    yearFiltered.forEach(f => {
+      const t = f.properties.type_name;
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    counts._total = yearFiltered.length;
+    return counts;
+  }, [data.features, yearRange]);
+
   // Legend entries: show only selected type or all
   const legendTypes = selectedType
     ? CONFLICT_TYPES.filter(t => t.name === selectedType)
@@ -215,9 +229,9 @@ export default function MapDashboard() {
               className="w-full bg-black border border-gray-700 text-xs text-gray-300 px-3 py-2 rounded appearance-none cursor-pointer hover:border-gray-500 focus:border-red-500 focus:outline-none transition-colors"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
             >
-              <option value="">Todos los tipos</option>
+              <option value="">Todos los tipos ({typeCounts._total || 0})</option>
               {CONFLICT_TYPES.map(ct => (
-                <option key={ct.name} value={ct.name}>{ct.name}</option>
+                <option key={ct.name} value={ct.name}>{ct.name} ({typeCounts[ct.name] || 0})</option>
               ))}
             </select>
           </div>
@@ -228,7 +242,7 @@ export default function MapDashboard() {
               <TrendingUp size={14} className="text-red-500" />
               ÍNDICE DE ACTIVIDAD GLOBAL
             </h3>
-            <div className="h-32 w-full">
+            <div className="h-24 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                   <XAxis 
