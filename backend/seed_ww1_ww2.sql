@@ -10,8 +10,11 @@ BEGIN
 
   -- 1. Crear los nuevos tipos de intervención (si no existen)
   INSERT INTO intervention_types (name, color_code)
-  VALUES ('Acciones WW1', '#006400')
+  VALUES ('Acciones WW1', '#228B22')
   ON CONFLICT (name) DO NOTHING;
+
+  -- Si ya existe con color viejo, actualizar
+  UPDATE intervention_types SET color_code = '#228B22' WHERE name = 'Acciones WW1';
 
   INSERT INTO intervention_types (name, color_code)
   VALUES ('Acciones WW2', '#32CD32')

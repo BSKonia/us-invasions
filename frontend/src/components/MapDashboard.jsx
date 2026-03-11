@@ -4,11 +4,23 @@ import Map, { Source, Layer, Popup, Marker } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getInterventions } from '../services/apiClient';
 import { supabase } from '../services/supabaseClient';
-import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Zap, MessageSquare, History } from 'lucide-react';
+import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Zap, MessageSquare, History, Filter } from 'lucide-react';
 import InterventionPopup from './InterventionPopup';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'Pw2ozdqe8K3Hu9Qg6OkX';
+
+// Tipos de conflicto con sus colores (fuente de verdad para leyenda y filtro)
+const CONFLICT_TYPES = [
+  { name: 'Golpe de Estado', color: '#ff0000' },
+  { name: 'Bombardeo', color: '#ff5500' },
+  { name: 'Ocupación Militar', color: '#ff0055' },
+  { name: 'Injerencia Política', color: '#ffaa00' },
+  { name: 'Operación Naval', color: '#0088ff' },
+  { name: 'Operación Encubierta', color: '#aa00ff' },
+  { name: 'Acciones WW1', color: '#228B22' },
+  { name: 'Acciones WW2', color: '#32CD32' },
+];
 
 export default function MapDashboard() {
   const mapRef = useRef();
@@ -25,6 +37,7 @@ export default function MapDashboard() {
   const [commentedIds, setCommentedIds] = useState([]);
   const [showOnlyCommented, setShowOnlyCommented] = useState(false);
   const [activeFilter, setActiveFilter] = useState(null); // null | 'actuales' | 'historico'
+  const [selectedType, setSelectedType] = useState(null); // null = todos, o el name del tipo
 
   useEffect(() => {
     checkUser();
@@ -91,6 +104,10 @@ export default function MapDashboard() {
     if (showOnlyCommented) {
       features = features.filter(f => commentedIds.includes(f.properties.id));
     }
+    // Filter by conflict type
+    if (selectedType) {
+      features = features.filter(f => f.properties.type_name === selectedType);
+    }
     // Filter by year range
     features = features.filter(f => f.properties.start_year >= yearRange[0] && f.properties.start_year <= yearRange[1]);
     
@@ -101,12 +118,17 @@ export default function MapDashboard() {
       ...data,
       features
     };
-  }, [data, showOnlyCommented, commentedIds, yearRange]);
+  }, [data, showOnlyCommented, commentedIds, yearRange, selectedType]);
 
   // Data for Global Tension Index (events per 25-year period)
+  // Respects the selectedType filter
   const chartData = useMemo(() => {
+    let features = data.features;
+    if (selectedType) {
+      features = features.filter(f => f.properties.type_name === selectedType);
+    }
     const periods = {};
-    data.features.forEach(f => {
+    features.forEach(f => {
       const year = f.properties.start_year;
       const periodStart = Math.floor(year / 25) * 25;
       periods[periodStart] = (periods[periodStart] || 0) + 1;
@@ -118,7 +140,12 @@ export default function MapDashboard() {
         events: count
       }))
       .sort((a, b) => parseInt(a.period) - parseInt(b.period));
-  }, [data.features]);
+  }, [data.features, selectedType]);
+
+  // Legend entries: show only selected type or all
+  const legendTypes = selectedType
+    ? CONFLICT_TYPES.filter(t => t.name === selectedType)
+    : CONFLICT_TYPES;
 
   return (
     <div className="flex h-screen w-full bg-[#0a0a0a] text-gray-300 font-mono overflow-hidden">
@@ -172,9 +199,28 @@ export default function MapDashboard() {
               }`}
             >
               <MessageSquare size={14} />
-              {showOnlyCommented ? 'MOSTRANDO SOLO COMENTADOS' : 'MOSTRAR SOLO COMENTADOS'}
+              {showOnlyCommented ? 'MOSTRANDO SÓLO INTERVENCIONES COMENTADAS' : 'MOSTRAR SÓLO INTERVENCIONES COMENTADAS'}
             </button>
           )}
+
+          {/* Filtro por tipo de conflicto */}
+          <div className="mt-3 relative">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Filter size={12} className="text-gray-500" />
+              <span className="text-[10px] text-gray-500 uppercase tracking-wider">Filtrar por tipo de conflicto</span>
+            </div>
+            <select
+              value={selectedType || ''}
+              onChange={(e) => setSelectedType(e.target.value || null)}
+              className="w-full bg-black border border-gray-700 text-xs text-gray-300 px-3 py-2 rounded appearance-none cursor-pointer hover:border-gray-500 focus:border-red-500 focus:outline-none transition-colors"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+            >
+              <option value="">Todos los tipos</option>
+              {CONFLICT_TYPES.map(ct => (
+                <option key={ct.name} value={ct.name}>{ct.name}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Global Tension Index Chart */}
           <div className="mt-6 pt-4 border-t border-gray-800">
@@ -202,7 +248,7 @@ export default function MapDashboard() {
                     itemStyle={{color: '#ff003c'}}
                     labelFormatter={(label) => `${label} - ${parseInt(label) + 24}`}
                   />
-                  <Bar dataKey="events" fill="#ff003c" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="events" fill={selectedType ? (CONFLICT_TYPES.find(t => t.name === selectedType)?.color || '#ff003c') : '#ff003c'} radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -277,19 +323,19 @@ export default function MapDashboard() {
 
         {/* Timeline Slider */}
         <div className="px-6 pb-6 pt-3 bg-[#0a0a0a]">
-          <label className="text-xs text-gray-400 flex justify-between mb-4">
+          <label className="text-xs text-gray-400 flex justify-between mb-6">
             <span>DESDE: <strong className="text-red-500">{yearRange[0]}</strong></span>
             <span>HASTA: <strong className="text-red-500">{yearRange[1]}</strong></span>
           </label>
           <div className="relative">
             {/* Year tooltip above thumb */}
             <div
-              className="absolute -top-7 transform -translate-x-1/2 pointer-events-none"
+              className="absolute -top-5 transform -translate-x-1/2 pointer-events-none"
               style={{
                 left: `${((yearRange[1] - 1795) / (2026 - 1795)) * 100}%`
               }}
             >
-              <span className="bg-red-600 text-white text-[11px] font-bold px-2 py-0.5 rounded shadow-lg">
+              <span className="bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                 {yearRange[1]}
               </span>
             </div>
@@ -343,19 +389,18 @@ export default function MapDashboard() {
               }}
             >
               <div 
-                className="relative flex items-center justify-center cursor-pointer transition-all hover:scale-125 hover:-translate-y-2 drop-shadow-[0_4px_6px_rgba(0,0,0,1)] z-10 group"
+                className="relative flex items-center justify-center cursor-pointer transition-all hover:scale-110 hover:-translate-y-1 z-10"
+                style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.8))' }}
                 onMouseEnter={() => setHoverInfo(feature.properties)}
                 onMouseLeave={() => setHoverInfo(null)}
               >
-                {/* Chincheta estilo mapa-sabores */}
                 <MapPin 
-                  size={32} 
-                  strokeWidth={2.5} 
+                  size={22} 
+                  strokeWidth={2} 
                   color={feature.properties.color_code || "#ff003c"} 
-                  fill={feature.properties.color_code ? feature.properties.color_code + '40' : 'rgba(255, 0, 60, 0.2)'} 
+                  fill={feature.properties.color_code ? feature.properties.color_code + '30' : 'rgba(255, 0, 60, 0.15)'} 
                   className="transition-colors"
                 />
-                <div className="absolute bottom-[4px] left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-black shadow-inner" />
               </div>
             </Marker>
           ))}
@@ -375,14 +420,12 @@ export default function MapDashboard() {
       <div className="absolute bottom-6 right-6 bg-[#111] border border-gray-800 p-4 rounded-lg shadow-2xl z-20">
         <h4 className="text-xs text-gray-400 font-bold mb-3 uppercase tracking-wider border-b border-gray-800 pb-2">Clasificación</h4>
         <div className="space-y-2">
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ff0000]"></div><span className="text-xs text-gray-300">Golpe de Estado</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ff5500]"></div><span className="text-xs text-gray-300">Bombardeo</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ff0055]"></div><span className="text-xs text-gray-300">Ocupación Militar</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#ffaa00]"></div><span className="text-xs text-gray-300">Injerencia Política</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#0088ff]"></div><span className="text-xs text-gray-300">Operación Naval</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#aa00ff]"></div><span className="text-xs text-gray-300">Operación Encubierta</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#006400]"></div><span className="text-xs text-gray-300">Acciones WW1</span></div>
-          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#32CD32]"></div><span className="text-xs text-gray-300">Acciones WW2</span></div>
+          {legendTypes.map(ct => (
+            <div key={ct.name} className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ct.color }}></div>
+              <span className="text-xs text-gray-300">{ct.name}</span>
+            </div>
+          ))}
         </div>
       </div>
 
