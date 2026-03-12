@@ -117,6 +117,14 @@ _ES_TO_EN = {
     "contra": "against",
     "acciones ww1": "World War 1",
     "acciones ww2": "World War 2",
+    "embargo": "embargo",
+    "desestabilización": "destabilization",
+    "desestabilizacion": "destabilization",
+    "sanciones": "sanctions",
+    "presión económica": "economic pressure",
+    "presion economica": "economic pressure",
+    "desestabilización económica": "economic destabilization",
+    "desestabilizacion economica": "economic destabilization",
 }
 
 # Preposiciones/artículos españoles que sobran en keywords inglesas
@@ -1047,6 +1055,9 @@ def get_icon(type_name):
     if "encubierta" in type_name or "clandestina" in type_name: return "🕵️"
     if "ww1" in type_name: return "⚔️"
     if "ww2" in type_name: return "🪖"
+    if "embargo" in type_name: return "🚫"
+    if "desestabilización" in type_name or "desestabilizacion" in type_name: return "📉"
+    if "sanciones" in type_name or "sancion" in type_name: return "🔒"
     return "📍"
 
 def generate_tags(item):

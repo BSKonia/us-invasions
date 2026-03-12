@@ -10,17 +10,53 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'Pw2ozdqe8K3Hu9Qg6OkX';
 
-// Tipos de conflicto con sus colores (fuente de verdad para leyenda y filtro)
-const CONFLICT_TYPES = [
-  { name: 'Golpe de Estado', color: '#ff0000' },
-  { name: 'Bombardeo', color: '#ff5500' },
-  { name: 'Ocupación Militar', color: '#ff0055' },
-  { name: 'Injerencia Política', color: '#ffaa00' },
-  { name: 'Operación Naval', color: '#0088ff' },
-  { name: 'Operación Encubierta', color: '#aa00ff' },
-  { name: 'Acciones WW1', color: '#228B22' },
-  { name: 'Acciones WW2', color: '#32CD32' },
+// Categorías y subtipos de intervención (fuente de verdad para leyenda y filtro)
+const CONFLICT_CATEGORIES = [
+  {
+    category: 'Militar',
+    color: '#ff2020',   // color representativo de la categoría
+    types: [
+      { name: 'Bombardeo', color: '#ff5500' },
+      { name: 'Ocupación Militar', color: '#ff0055' },
+      { name: 'Operación Naval', color: '#0088ff' },
+      { name: 'Operación Encubierta', color: '#aa00ff' },
+      { name: 'Acciones WW1', color: '#8B6914' },
+      { name: 'Acciones WW2', color: '#B8860B' },
+    ],
+  },
+  {
+    category: 'Político',
+    color: '#ffaa00',
+    types: [
+      { name: 'Golpe de Estado', color: '#ff0000' },
+      { name: 'Injerencia Política', color: '#ffaa00' },
+    ],
+  },
+  {
+    category: 'Económico',
+    color: '#00C853',
+    types: [
+      { name: 'Embargo', color: '#00C853' },
+      { name: 'Desestabilización', color: '#00E676' },
+      { name: 'Sanciones', color: '#69F0AE' },
+    ],
+  },
 ];
+
+// Flat list of all types (for backwards compatibility)
+const CONFLICT_TYPES = CONFLICT_CATEGORIES.flatMap(cat => cat.types);
+
+// Map from type name to its parent category name
+const TYPE_TO_CATEGORY = {};
+CONFLICT_CATEGORIES.forEach(cat => {
+  cat.types.forEach(t => { TYPE_TO_CATEGORY[t.name] = cat.category; });
+});
+
+// Map from category name to array of type names
+const CATEGORY_TYPE_NAMES = {};
+CONFLICT_CATEGORIES.forEach(cat => {
+  CATEGORY_TYPE_NAMES[cat.category] = cat.types.map(t => t.name);
+});
 
 export default function MapDashboard() {
   const mapRef = useRef();
@@ -37,9 +73,20 @@ export default function MapDashboard() {
   const [commentedIds, setCommentedIds] = useState([]);
   const [showOnlyCommented, setShowOnlyCommented] = useState(false);
   const [activeFilter, setActiveFilter] = useState(null); // null | 'actuales' | 'historico'
-  const [selectedType, setSelectedType] = useState(null); // null = todos, o el name del tipo
+  const [selectedFilter, setSelectedFilter] = useState(null); // null = all, category name, or type name
   const [showBases, setShowBases] = useState(false);
   const [basesData, setBasesData] = useState({ type: "FeatureCollection", features: [] });
+
+  // Resolve which type names are active based on selectedFilter
+  const activeTypeNames = useMemo(() => {
+    if (!selectedFilter) return null; // null = show all
+    // Check if it's a category name
+    if (CATEGORY_TYPE_NAMES[selectedFilter]) {
+      return CATEGORY_TYPE_NAMES[selectedFilter];
+    }
+    // Otherwise it's a single type name
+    return [selectedFilter];
+  }, [selectedFilter]);
 
   useEffect(() => {
     checkUser();
@@ -112,9 +159,9 @@ export default function MapDashboard() {
     if (showOnlyCommented) {
       features = features.filter(f => commentedIds.includes(f.properties.id));
     }
-    // Filter by conflict type
-    if (selectedType) {
-      features = features.filter(f => f.properties.type_name === selectedType);
+    // Filter by conflict type(s) or category
+    if (activeTypeNames) {
+      features = features.filter(f => activeTypeNames.includes(f.properties.type_name));
     }
     // Filter by year range
     features = features.filter(f => f.properties.start_year >= yearRange[0] && f.properties.start_year <= yearRange[1]);
@@ -126,14 +173,14 @@ export default function MapDashboard() {
       ...data,
       features
     };
-  }, [data, showOnlyCommented, commentedIds, yearRange, selectedType]);
+  }, [data, showOnlyCommented, commentedIds, yearRange, activeTypeNames]);
 
   // Data for Global Tension Index (events per 25-year period)
-  // Respects the selectedType filter
+  // Respects the selectedFilter
   const chartData = useMemo(() => {
     let features = data.features;
-    if (selectedType) {
-      features = features.filter(f => f.properties.type_name === selectedType);
+    if (activeTypeNames) {
+      features = features.filter(f => activeTypeNames.includes(f.properties.type_name));
     }
     const periods = {};
     features.forEach(f => {
@@ -148,26 +195,56 @@ export default function MapDashboard() {
         events: count
       }))
       .sort((a, b) => parseInt(a.period) - parseInt(b.period));
-  }, [data.features, selectedType]);
+  }, [data.features, activeTypeNames]);
 
-  // Counts per type (respecting yearRange) for the filter dropdown
+  // Counts per type AND per category (respecting yearRange) for the filter dropdown
   const typeCounts = useMemo(() => {
     const yearFiltered = data.features.filter(
       f => f.properties.start_year >= yearRange[0] && f.properties.start_year <= yearRange[1]
     );
     const counts = {};
+    const categoryCounts = {};
     yearFiltered.forEach(f => {
       const t = f.properties.type_name;
       counts[t] = (counts[t] || 0) + 1;
+      const cat = TYPE_TO_CATEGORY[t];
+      if (cat) {
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      }
     });
     counts._total = yearFiltered.length;
+    counts._categories = categoryCounts;
     return counts;
   }, [data.features, yearRange]);
 
-  // Legend entries: show only selected type or all
-  const legendTypes = selectedType
-    ? CONFLICT_TYPES.filter(t => t.name === selectedType)
-    : CONFLICT_TYPES;
+  // Determine bar chart color based on filter selection
+  const chartBarColor = useMemo(() => {
+    if (!selectedFilter) return '#ff003c';
+    // If it's a category, use category color
+    const cat = CONFLICT_CATEGORIES.find(c => c.category === selectedFilter);
+    if (cat) return cat.color;
+    // If it's a type, use type color
+    const type = CONFLICT_TYPES.find(t => t.name === selectedFilter);
+    if (type) return type.color;
+    return '#ff003c';
+  }, [selectedFilter]);
+
+  // Legend: determine which categories/types to show based on filter
+  const legendCategories = useMemo(() => {
+    if (!selectedFilter) return CONFLICT_CATEGORIES; // show all
+    // If a category is selected, show only that category
+    const cat = CONFLICT_CATEGORIES.find(c => c.category === selectedFilter);
+    if (cat) return [cat];
+    // If a single type is selected, show its parent category but only that type
+    const parentCat = CONFLICT_CATEGORIES.find(c => c.types.some(t => t.name === selectedFilter));
+    if (parentCat) {
+      return [{
+        ...parentCat,
+        types: parentCat.types.filter(t => t.name === selectedFilter),
+      }];
+    }
+    return CONFLICT_CATEGORIES;
+  }, [selectedFilter]);
 
   return (
     <div className="flex h-screen w-full bg-[#0a0a0a] text-gray-300 font-mono overflow-hidden">
@@ -225,21 +302,30 @@ export default function MapDashboard() {
             </button>
           )}
 
-          {/* Filtro por tipo de conflicto */}
+          {/* Filtro por tipo de conflicto con categorías */}
           <div className="mt-3 relative">
             <div className="flex items-center gap-2 mb-1.5">
               <Filter size={12} className="text-gray-500" />
               <span className="text-[10px] text-gray-500 uppercase tracking-wider">Filtrar por tipo de conflicto</span>
             </div>
             <select
-              value={selectedType || ''}
-              onChange={(e) => setSelectedType(e.target.value || null)}
+              value={selectedFilter || ''}
+              onChange={(e) => setSelectedFilter(e.target.value || null)}
               className="w-full bg-black border border-gray-700 text-xs text-gray-300 px-3 py-2 rounded appearance-none cursor-pointer hover:border-gray-500 focus:border-red-500 focus:outline-none transition-colors"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
             >
               <option value="">Todos los tipos ({typeCounts._total || 0})</option>
-              {CONFLICT_TYPES.map(ct => (
-                <option key={ct.name} value={ct.name}>{ct.name} ({typeCounts[ct.name] || 0})</option>
+              {CONFLICT_CATEGORIES.map(cat => (
+                <optgroup key={cat.category} label={`── ${cat.category} ──`}>
+                  <option value={cat.category}>
+                    {cat.category} — Todos ({typeCounts._categories?.[cat.category] || 0})
+                  </option>
+                  {cat.types.map(ct => (
+                    <option key={ct.name} value={ct.name}>
+                      {'    '}{ct.name} ({typeCounts[ct.name] || 0})
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -283,7 +369,7 @@ export default function MapDashboard() {
                     itemStyle={{color: '#ff003c'}}
                     labelFormatter={(label) => `${label} - ${parseInt(label) + 24}`}
                   />
-                  <Bar dataKey="events" fill={selectedType ? (CONFLICT_TYPES.find(t => t.name === selectedType)?.color || '#ff003c') : '#ff003c'} radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="events" fill={chartBarColor} radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -483,19 +569,30 @@ export default function MapDashboard() {
 
 
       {/* Map Legend */}
-      <div className="absolute bottom-6 right-6 bg-[#111] border border-gray-800 p-4 rounded-lg shadow-2xl z-20">
+      <div className="absolute bottom-6 right-6 bg-[#111] border border-gray-800 p-4 rounded-lg shadow-2xl z-20 max-w-xs">
         <h4 className="text-xs text-gray-400 font-bold mb-3 uppercase tracking-wider border-b border-gray-800 pb-2">Clasificación</h4>
-        <div className="space-y-2">
-          {legendTypes.map(ct => (
-            <div key={ct.name} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ct.color }}></div>
-              <span className="text-xs text-gray-300">{ct.name}</span>
+        <div className="space-y-3">
+          {legendCategories.map(cat => (
+            <div key={cat.category}>
+              <h5 className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: cat.color }}>
+                {cat.category}
+              </h5>
+              <div className="space-y-1 pl-1">
+                {cat.types.map(ct => (
+                  <div key={ct.name} className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ct.color }}></div>
+                    <span className="text-[11px] text-gray-300">{ct.name}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
           {showBases && (
-            <div className="flex items-center gap-2 border-t border-gray-800 pt-2 mt-2">
-              <Shield size={12} color="#00CED1" fill="rgba(0, 206, 209, 0.2)" />
-              <span className="text-xs text-gray-300">Base Militar ({basesData.features.length})</span>
+            <div className="border-t border-gray-800 pt-2 mt-2">
+              <div className="flex items-center gap-2">
+                <Shield size={12} color="#00CED1" fill="rgba(0, 206, 209, 0.2)" />
+                <span className="text-[11px] text-gray-300">Base Militar ({basesData.features.length})</span>
+              </div>
             </div>
           )}
         </div>
