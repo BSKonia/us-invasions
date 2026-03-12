@@ -79,6 +79,7 @@ export default function MapDashboard() {
   const [darkMode, setDarkMode] = useState(true);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showBasesTemporal, setShowBasesTemporal] = useState(false);
 
   // Resolve which type names are active based on selectedFilter
   const activeTypeNames = useMemo(() => {
@@ -158,6 +159,10 @@ export default function MapDashboard() {
   };
 
   const filteredData = useMemo(() => {
+    // When bases temporal mode is active, hide intervention markers
+    if (showBasesTemporal) {
+      return { ...data, features: [] };
+    }
     let features = data.features;
     if (showOnlyCommented) {
       features = features.filter(f => commentedIds.includes(f.properties.id));
@@ -176,11 +181,27 @@ export default function MapDashboard() {
       ...data,
       features
     };
-  }, [data, showOnlyCommented, commentedIds, yearRange, activeTypeNames]);
+  }, [data, showOnlyCommented, commentedIds, yearRange, activeTypeNames, showBasesTemporal]);
 
   // Data for Global Tension Index (events per 25-year period)
-  // Respects the selectedFilter
+  // Respects the selectedFilter; when bases temporal mode, shows base establishment counts
   const chartData = useMemo(() => {
+    if (showBasesTemporal) {
+      // Show bases established per 25-year period
+      const periods = {};
+      basesData.features.forEach(f => {
+        const year = f.properties.year_established;
+        if (!year) return;
+        const periodStart = Math.floor(year / 25) * 25;
+        periods[periodStart] = (periods[periodStart] || 0) + 1;
+      });
+      return Object.entries(periods)
+        .map(([periodStart, count]) => ({
+          period: `${periodStart}`,
+          events: count
+        }))
+        .sort((a, b) => parseInt(a.period) - parseInt(b.period));
+    }
     let features = data.features;
     if (activeTypeNames) {
       features = features.filter(f => activeTypeNames.includes(f.properties.type_name));
@@ -198,7 +219,19 @@ export default function MapDashboard() {
         events: count
       }))
       .sort((a, b) => parseInt(a.period) - parseInt(b.period));
-  }, [data.features, activeTypeNames]);
+  }, [data.features, activeTypeNames, showBasesTemporal, basesData.features]);
+
+  // Filtered bases for temporal mode: only show bases established <= yearRange[1]
+  const filteredBasesData = useMemo(() => {
+    if (!showBasesTemporal) return basesData;
+    return {
+      ...basesData,
+      features: basesData.features.filter(f => {
+        const yearEst = f.properties.year_established;
+        return yearEst && yearEst <= yearRange[1];
+      })
+    };
+  }, [basesData, showBasesTemporal, yearRange]);
 
   // Counts per type AND per category (respecting yearRange) for the filter dropdown
   const typeCounts = useMemo(() => {
@@ -222,6 +255,7 @@ export default function MapDashboard() {
 
   // Determine bar chart color based on filter selection
   const chartBarColor = useMemo(() => {
+    if (showBasesTemporal) return '#00CED1';
     if (!selectedFilter) return '#ff003c';
     // If it's a category, use category color
     const cat = CONFLICT_CATEGORIES.find(c => c.category === selectedFilter);
@@ -230,7 +264,7 @@ export default function MapDashboard() {
     const type = CONFLICT_TYPES.find(t => t.name === selectedFilter);
     if (type) return type.color;
     return '#ff003c';
-  }, [selectedFilter]);
+  }, [selectedFilter, showBasesTemporal]);
 
   // Map style URL based on dark/light mode
   const mapStyleUrl = useMemo(() => {
@@ -241,6 +275,7 @@ export default function MapDashboard() {
 
   // Legend: determine which categories/types to show based on filter
   const legendCategories = useMemo(() => {
+    if (showBasesTemporal) return []; // Only show bases in legend
     if (!selectedFilter) return CONFLICT_CATEGORIES; // show all
     // If a category is selected, show only that category
     const cat = CONFLICT_CATEGORIES.find(c => c.category === selectedFilter);
@@ -254,7 +289,7 @@ export default function MapDashboard() {
       }];
     }
     return CONFLICT_CATEGORIES;
-  }, [selectedFilter]);
+  }, [selectedFilter, showBasesTemporal]);
 
   return (
     <div className="flex h-screen w-full bg-[#0a0a0a] text-gray-300 font-mono overflow-hidden relative">
@@ -367,7 +402,7 @@ export default function MapDashboard() {
 
           {/* Toggle Bases Militares */}
           <button
-            onClick={() => setShowBases(!showBases)}
+            onClick={() => { setShowBases(!showBases); if (!showBases) setShowBasesTemporal(false); }}
             className={`mt-3 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
               showBases
               ? 'bg-[#00CED1]/15 text-[#00CED1] border-[#00CED1]/50'
@@ -375,14 +410,27 @@ export default function MapDashboard() {
             }`}
           >
             <Shield size={14} />
-            {showBases ? `BASES MILITARES (${basesData.features.length})` : `MOSTRAR BASES MILITARES (${basesData.features.length})`}
+            {showBases ? `TODAS LAS BASES MILITARES (${basesData.features.length})` : `MOSTRAR TODAS LAS BASES MILITARES (${basesData.features.length})`}
+          </button>
+
+          {/* Toggle Evolución Temporal de Bases */}
+          <button
+            onClick={() => { setShowBasesTemporal(!showBasesTemporal); if (!showBasesTemporal) setShowBases(false); }}
+            className={`mt-1.5 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
+              showBasesTemporal
+              ? 'bg-[#00CED1]/15 text-[#00CED1] border-[#00CED1]/50'
+              : 'bg-black text-gray-400 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            <Clock size={14} />
+            {showBasesTemporal ? `EVOLUCIÓN TEMPORAL DE BASES (${filteredBasesData.features.length}/${basesData.features.length})` : `EVOLUCIÓN TEMPORAL DE BASES (${basesData.features.length})`}
           </button>
 
           {/* Global Tension Index Chart */}
           <div className="mt-6 pt-4 border-t border-gray-800">
             <h3 className="text-xs text-gray-400 mb-2 flex items-center gap-2">
-              <TrendingUp size={14} className="text-red-500" />
-              ÍNDICE DE ACTIVIDAD GLOBAL
+              <TrendingUp size={14} className={showBasesTemporal ? 'text-[#00CED1]' : 'text-red-500'} />
+              {showBasesTemporal ? 'BASES ESTABLECIDAS POR PERÍODO' : 'ÍNDICE DE ACTIVIDAD GLOBAL'}
             </h3>
             <div className="h-16 w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -412,8 +460,47 @@ export default function MapDashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 custom-scrollbar">
-          <h3 className="text-[10px] text-gray-500 uppercase tracking-widest font-bold px-1">SUGERENCIAS</h3>
-          {filteredData.features.map((feature) => {
+          <h3 className="text-[10px] text-gray-500 uppercase tracking-widest font-bold px-1">
+            {showBasesTemporal ? 'EVOLUCIÓN TEMPORAL DE BASES' : 'SUGERENCIAS'}
+          </h3>
+          {showBasesTemporal ? (
+            <div className="space-y-3">
+              <div className="p-4 bg-[#1a1a1a] border border-[#00CED1]/30 rounded">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield size={16} className="text-[#00CED1]" />
+                  <span className="text-sm font-bold text-[#00CED1]">{filteredBasesData.features.length}</span>
+                  <span className="text-xs text-gray-400">bases hasta {yearRange[1]}</span>
+                </div>
+                <p className="text-[10px] text-gray-500">Mueve el control temporal para ver cómo se expandió la red de bases militares de EE.UU. a lo largo del tiempo.</p>
+              </div>
+              {filteredBasesData.features.slice(0, 20).map(feature => (
+                <div 
+                  key={`base-list-${feature.properties.id}`}
+                  className="p-3 bg-[#1a1a1a] border border-gray-800 rounded cursor-pointer transition-all hover:bg-[#222] hover:border-[#00CED1]/30"
+                  onClick={() => {
+                    mapRef.current?.flyTo({ center: feature.geometry.coordinates, zoom: 6 });
+                    setSelectedEvent(feature);
+                    if (window.innerWidth < 768) { setIsSidebarOpen(false); setMobileSidebarOpen(false); }
+                  }}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-black text-[#00CED1] border border-[#00CED1]/30">
+                      {feature.properties.year_established || '?'}
+                    </span>
+                    <span className="text-[10px] text-gray-500 uppercase">{feature.properties.country_name}</span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-white">{feature.properties.name}</h3>
+                  {feature.properties.base_type && (
+                    <p className="text-[10px] text-gray-500 mt-0.5">{feature.properties.base_type}</p>
+                  )}
+                </div>
+              ))}
+              {filteredBasesData.features.length > 20 && (
+                <p className="text-[10px] text-gray-600 text-center py-2">...y {filteredBasesData.features.length - 20} bases más</p>
+              )}
+            </div>
+          ) : (
+          filteredData.features.map((feature) => {
             const hasCommented = commentedIds.includes(feature.properties.id);
             return (
               <div 
@@ -448,7 +535,8 @@ export default function MapDashboard() {
                 <p className="text-xs text-gray-500 line-clamp-2">{feature.properties.description}</p>
               </div>
             );
-          })}
+          })
+          )}
         </div>
 
         {/* Quick Action Buttons */}
@@ -573,7 +661,7 @@ export default function MapDashboard() {
 
 
           {/* Military Base Markers */}
-          {showBases && basesData.features.map(feature => (
+          {(showBases || showBasesTemporal) && (showBasesTemporal ? filteredBasesData : basesData).features.map(feature => (
             <Marker
               key={`base-${feature.properties.id}`}
               longitude={feature.geometry.coordinates[0]}
@@ -675,11 +763,16 @@ export default function MapDashboard() {
                   </div>
                 </div>
               ))}
-              {showBases && (
+              {(showBases || showBasesTemporal) && (
                 <div className="border-t pt-2 mt-2" style={{ borderColor: darkMode ? '#1f2937' : '#d1d5db' }}>
                   <div className="flex items-center gap-2">
                     <Shield size={12} color="#00CED1" fill="rgba(0, 206, 209, 0.2)" />
-                    <span className={`text-[10px] md:text-[11px] ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Base Militar ({basesData.features.length})</span>
+                    <span className={`text-[10px] md:text-[11px] ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      {showBasesTemporal 
+                        ? `Bases hasta ${yearRange[1]} (${filteredBasesData.features.length}/${basesData.features.length})`
+                        : `Base Militar (${basesData.features.length})`
+                      }
+                    </span>
                   </div>
                 </div>
               )}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { getInterventions } from '../services/apiClient';
-import { Target, Map as MapIcon, LogOut, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp } from 'lucide-react';
+import { Target, Map as MapIcon, LogOut, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp, Filter } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function DashboardPage() {
@@ -269,6 +269,12 @@ export default function DashboardPage() {
           </div>
         </header>
 
+        {/* App description */}
+        <p className="text-sm text-gray-400 mb-8 -mt-4 max-w-3xl leading-relaxed">
+          Intervenciones y bases militares de EE.UU. en todo el mundo, desde su independencia hasta hoy. 
+          Explora el mapa interactivo, analiza expedientes clasificados y participa con la comunidad.
+        </p>
+
         {/* ============================================ */}
         {/* SECCION 1: ACTIVIDAD SOCIAL (arriba, destacada) */}
         {/* ============================================ */}
@@ -341,7 +347,114 @@ export default function DashboardPage() {
         </div>
 
         {/* ============================================ */}
-        {/* SECCION 1.5: GRAFICO DE INTERVENCIONES POR DÉCADA */}
+        {/* SECCION 1.5: TIPOS DE INTERVENCIÓN (referencia visual) */}
+        {/* ============================================ */}
+        <div className="bg-[#111] border border-gray-800 p-4 md:p-5 mb-8">
+          <h2 className="text-gray-500 text-xs mb-4 flex items-center gap-2">
+            <Filter size={14} className="text-red-500" />
+            TIPOS DE INTERVENCIÓN
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Militar */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#ff2020] border-b border-[#ff2020]/20 pb-1">Militar</h3>
+              <div className="space-y-1.5">
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ff5500' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Bombardeo</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Ataques aéreos y bombardeos estratégicos</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ff0055' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Ocupación Militar</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Despliegue de tropas y ocupación territorial</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#0088ff' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Operación Naval</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Bloqueos navales y despliegue de flotas</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#aa00ff' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Operación Encubierta</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Acciones clandestinas de la CIA y operaciones secretas</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#8B6914' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Acciones WW1</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Intervenciones durante la Primera Guerra Mundial</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#B8860B' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Acciones WW2</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Intervenciones durante la Segunda Guerra Mundial</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Político */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#ffaa00] border-b border-[#ffaa00]/20 pb-1">Político</h3>
+              <div className="space-y-1.5">
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ff0000' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Golpe de Estado</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Apoyo o ejecución de golpes contra gobiernos</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ffaa00' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Injerencia Política</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Manipulación electoral e influencia política</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Económico */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#00C853] border-b border-[#00C853]/20 pb-1">Económico</h3>
+              <div className="space-y-1.5">
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#00C853' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Embargo</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Bloqueos comerciales y embargos económicos</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#00E676' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Desestabilización</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Sabotaje económico y desestabilización financiera</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#69F0AE' }}></div>
+                  <div>
+                    <span className="text-[11px] text-white font-semibold">Sanciones</span>
+                    <p className="text-[10px] text-gray-500 leading-tight">Sanciones económicas y restricciones comerciales</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================ */}
+        {/* SECCION 1.5b: GRAFICO DE INTERVENCIONES POR DÉCADA */}
         {/* ============================================ */}
         {decadeChartData.length > 0 && (
           <div className="bg-[#111] border border-gray-800 p-4 md:p-5 mb-8">
