@@ -403,8 +403,26 @@ export default function DashboardPage() {
                       {d.total}
                     </div>
                   ))}
-                </div>
               </div>
+            </div>
+            {/* Totals summary row */}
+            <div className="flex items-center mt-3 pt-3 border-t border-gray-700" style={{ minWidth: '600px' }}>
+              <span className="text-xs text-gray-400 font-bold font-mono uppercase shrink-0" style={{ width: '95px', paddingLeft: '10px' }}>TOTAL</span>
+              <div className="flex-1 flex items-center gap-1 flex-wrap">
+                {CHART_TYPES.map(ct => {
+                  const typeTotal = decadeChartData.reduce((sum, d) => sum + (d[ct.key] || 0), 0);
+                  if (!typeTotal) return null;
+                  return (
+                    <span key={ct.key} className="inline-flex items-center gap-1 text-[10px] font-bold font-mono text-white px-1.5 py-0.5 rounded" style={{ backgroundColor: ct.color }}>
+                      {ct.key.split(' ')[0]}: {typeTotal}
+                    </span>
+                  );
+                })}
+              </div>
+              <span className="text-xs text-white font-bold font-mono shrink-0 w-10 text-right">
+                {decadeChartData.reduce((sum, d) => sum + d.total, 0)}
+              </span>
+            </div>
             </div>
             {/* Compact legend below chart */}
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 pt-3 border-t border-gray-800">

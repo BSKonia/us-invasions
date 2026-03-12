@@ -303,8 +303,8 @@ export default function MapDashboard() {
               className="flex items-center gap-2 text-xs font-bold bg-black border border-gray-700 text-gray-400 px-3 py-1.5 rounded hover:text-white hover:border-gray-500 transition-colors"
             >
               <LayoutDashboard size={14} />
-              <span className="hidden sm:inline">VOLVER AL DASHBOARD</span>
-              <span className="sm:hidden">DASHBOARD</span>
+              <span className="hidden sm:inline">VOLVER AL MENÚ PERSONAL</span>
+              <span className="sm:hidden">MENÚ</span>
             </button>
 
             <button 
@@ -615,14 +615,14 @@ export default function MapDashboard() {
         {/* Dark/Light Mode Toggle - top right of map */}
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className={`absolute top-4 right-4 z-20 p-2.5 rounded-lg shadow-2xl border transition-all duration-300 ${
+          className={`absolute top-4 right-4 z-20 p-3.5 rounded-lg shadow-2xl border transition-all duration-300 ${
             darkMode 
               ? 'bg-[#111] border-gray-700 text-gray-400 hover:text-yellow-400 hover:border-yellow-500/50' 
               : 'bg-white border-gray-300 text-gray-600 hover:text-gray-900 hover:border-gray-400'
           }`}
           title={darkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
         >
-          {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+          {darkMode ? <Sun size={22} /> : <Moon size={22} />}
         </button>
 
       {/* Map Legend - Collapsible */}
