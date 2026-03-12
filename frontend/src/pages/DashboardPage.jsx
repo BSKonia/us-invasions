@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { getInterventions } from '../services/apiClient';
-import { Target, Map as MapIcon, LogOut, Eye, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Target, Map as MapIcon, LogOut, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -18,7 +18,7 @@ export default function DashboardPage() {
   // Modal states
   const [showAllComments, setShowAllComments] = useState(false);
   const [showAllVotes, setShowAllVotes] = useState(false);
-  const [showAllDiscoveries, setShowAllDiscoveries] = useState(false);
+  const [showAllRecommendations, setShowAllRecommendations] = useState(false);
 
   // Intervention type definitions for the stacked chart
   const CHART_TYPES = [
@@ -41,7 +41,6 @@ export default function DashboardPage() {
     const decades = {};
     allInterventions.forEach(f => {
       const year = f.properties.start_year;
-      if (year < 1890) return; // Start from 1890 like the reference image
       let decadeStart;
       if (year >= 2020) {
         decadeStart = 2020; // 2020-present
@@ -55,12 +54,23 @@ export default function DashboardPage() {
       decades[decadeStart][typeName] = (decades[decadeStart][typeName] || 0) + 1;
     });
     
+    const typeKeys = CHART_TYPES.map(ct => ct.key);
     return Object.entries(decades)
       .map(([decadeStart, types]) => {
         const ds = parseInt(decadeStart);
         const label = ds >= 2020 ? '2020-HOY' : `${ds}-${ds + 9}`;
         const total = Object.values(types).reduce((sum, v) => sum + v, 0);
-        return { decade: label, _sort: ds, total, ...types };
+        // Pre-compute cumulative sums for each type in stack order
+        const cumulative = {};
+        let runningSum = 0;
+        typeKeys.forEach(key => {
+          const val = types[key] || 0;
+          if (val > 0) {
+            runningSum += val;
+            cumulative[`_cum_${key}`] = runningSum;
+          }
+        });
+        return { decade: label, _sort: ds, total, ...types, ...cumulative };
       })
       .sort((a, b) => a._sort - b._sort);
   }, [allInterventions]);
@@ -178,13 +188,56 @@ export default function DashboardPage() {
     );
   }
 
-  const discoveredInterventions = allInterventions.filter(f => discoveredIds.includes(f.properties.id));
   const unexplored = allInterventions.filter(f => !discoveredIds.includes(f.properties.id));
-  const randomUnexplored = unexplored.sort(() => 0.5 - Math.random()).slice(0, 3);
+
+  // Smart recommendation: analyze which types the user interacts with most
+  const interactedTypeCount = {};
+  // Build a lookup map from intervention id -> type_name
+  const idToType = {};
+  allInterventions.forEach(f => { idToType[f.properties.id] = f.properties.type_name; });
+
+  // Count types from comments
+  userComments.forEach(c => {
+    const typeName = idToType[c.intervention_id];
+    if (typeName) interactedTypeCount[typeName] = (interactedTypeCount[typeName] || 0) + 1;
+  });
+  // Count types from votes
+  userVotes.forEach(v => {
+    const typeName = idToType[v.intervention_id];
+    if (typeName) interactedTypeCount[typeName] = (interactedTypeCount[typeName] || 0) + 1;
+  });
+  // Count types from discoveries
+  discoveredIds.forEach(id => {
+    const typeName = idToType[id];
+    if (typeName) interactedTypeCount[typeName] = (interactedTypeCount[typeName] || 0) + 1;
+  });
+
+  // Find the most interacted type(s)
+  const sortedTypes = Object.entries(interactedTypeCount).sort((a, b) => b[1] - a[1]);
+  const topType = sortedTypes.length > 0 ? sortedTypes[0][0] : null;
+
+  // Smart recommendations: unexplored interventions of the user's preferred type
+  let smartRecommendations;
+  let recommendationLabel;
+  if (topType) {
+    smartRecommendations = unexplored.filter(f => f.properties.type_name === topType);
+    recommendationLabel = topType;
+    // If not enough of that type, supplement with second-most type
+    if (smartRecommendations.length < 3 && sortedTypes.length > 1) {
+      const secondType = sortedTypes[1][0];
+      const secondBatch = unexplored.filter(f => f.properties.type_name === secondType);
+      smartRecommendations = [...smartRecommendations, ...secondBatch];
+      recommendationLabel = `${topType} / ${secondType}`;
+    }
+  } else {
+    // No interaction data: rotate across all types
+    smartRecommendations = unexplored.sort(() => 0.5 - Math.random());
+    recommendationLabel = 'Todos los tipos';
+  }
+  const recommendationsPreview = smartRecommendations.slice(0, 3);
 
   const commentsPreview = userComments.slice(0, 3);
   const votesPreview = userVotes.slice(0, 3);
-  const discoveriesPreview = discoveredInterventions.slice(0, 3);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] font-mono text-gray-300 p-4 md:p-8">
@@ -325,11 +378,12 @@ export default function DashboardPage() {
                         stackId="a" 
                         fill={ct.color}
                         radius={0}
-                        label={({ x, y, width, height, value }) => {
+                        label={({ x, y, width, height, value, index }) => {
                           if (!value || width < 18) return null;
+                          const cumVal = decadeChartData[index]?.[`_cum_${ct.key}`] || value;
                           return (
                             <text x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={10} fontWeight="bold" fontFamily="monospace">
-                              {value}
+                              {cumVal}
                             </text>
                           );
                         }}
@@ -365,89 +419,70 @@ export default function DashboardPage() {
         )}
 
         {/* ============================================ */}
-        {/* SECCION 2: STATS + DESCUBRIMIENTOS */}
+        {/* SECCION 2: STATS + FOCOS RECOMENDADOS */}
         {/* ============================================ */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
           {/* Columna izquierda: Stats */}
-          <div className="col-span-1 space-y-6">
-            <div className="bg-[#111] border border-gray-800 p-5">
-              <h2 className="text-gray-500 text-xs mb-2">ESTADO DEL ARCHIVO</h2>
-              <div className="text-4xl font-bold text-white mb-1">
-                {discoveredIds.length} <span className="text-sm text-gray-500 font-normal">/ {allInterventions.length}</span>
-              </div>
-              <p className="text-xs text-red-500">Expedientes analizados</p>
-              <div className="w-full bg-gray-900 h-2 mt-3">
-                <div 
-                  className="bg-red-600 h-2 transition-all" 
-                  style={{ width: `${Math.min(100, (discoveredIds.length / Math.max(1, allInterventions.length)) * 100)}%` }}
-                ></div>
-              </div>
+          <div className="bg-[#111] border border-gray-800 p-5">
+            <h2 className="text-gray-500 text-xs mb-2">ESTADO DEL ARCHIVO</h2>
+            <div className="text-4xl font-bold text-white mb-1">
+              {discoveredIds.length} <span className="text-sm text-gray-500 font-normal">/ {allInterventions.length}</span>
             </div>
-
-            <div className="bg-[#111] border border-gray-800 p-5">
-              <h2 className="text-gray-500 text-xs mb-4 flex items-center gap-2">
-                <AlertTriangle size={14} className="text-orange-500"/> 
-                FOCOS RECOMENDADOS
-              </h2>
-              <div className="space-y-3">
-                {randomUnexplored.map(item => (
-                  <div key={item.properties.id} className="border-l-2 border-orange-500 pl-3">
-                    <h3 className="text-white text-sm font-bold truncate">{item.properties.title}</h3>
-                    <p className="text-xs text-gray-500">{item.properties.country_name} ({item.properties.start_year})</p>
-                  </div>
-                ))}
-                {randomUnexplored.length === 0 && (
-                  <p className="text-xs text-gray-600 italic">Has analizado todos los archivos disponibles.</p>
-                )}
-              </div>
+            <p className="text-xs text-red-500">Expedientes analizados</p>
+            <div className="w-full bg-gray-900 h-2 mt-3">
+              <div 
+                className="bg-red-600 h-2 transition-all" 
+                style={{ width: `${Math.min(100, (discoveredIds.length / Math.max(1, allInterventions.length)) * 100)}%` }}
+              ></div>
             </div>
           </div>
 
-          {/* Columna derecha: Historial de descubrimientos (comprimido a 3) */}
-          <div className="col-span-1 md:col-span-2">
-            <div className="bg-[#111] border border-gray-800 p-5">
-              <h2 className="text-gray-500 text-xs mb-4 flex items-center justify-between">
-                <span className="flex items-center gap-2"><Eye size={14} /> HISTORIAL DE DESCUBRIMIENTOS</span>
-                <span className="text-[10px] text-gray-600 bg-gray-900 px-2 py-0.5 rounded">{discoveredInterventions.length} expedientes</span>
-              </h2>
-              
-              <div className="space-y-2">
-                {discoveriesPreview.length > 0 ? (
-                  discoveriesPreview.map((item) => (
-                    <div key={item.properties.id} className="flex items-center justify-between p-3 bg-black border border-gray-800 hover:border-red-500/50 transition-colors">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] px-1.5 py-0.5 bg-gray-900 text-gray-400 border border-gray-700">
-                            {item.properties.start_year}
-                          </span>
-                          <span className="text-[10px] uppercase" style={{ color: item.properties.color_code }}>
-                            {item.properties.type_name}
-                          </span>
-                        </div>
-                        <h3 className="text-sm font-semibold text-white">{item.properties.title}</h3>
-                      </div>
-                      <span className="text-xs text-gray-500">{item.properties.country_name}</span>
+          {/* Columna derecha: Focos Recomendados (inteligente) */}
+          <div className="bg-[#111] border border-gray-800 p-5">
+            <h2 className="text-gray-500 text-xs mb-1 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <AlertTriangle size={14} className="text-orange-500"/> 
+                FOCOS RECOMENDADOS
+              </span>
+              {topType && (
+                <span className="text-[10px] text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/20">
+                  Basado en: {recommendationLabel}
+                </span>
+              )}
+            </h2>
+            <p className="text-[10px] text-gray-600 mb-4">
+              {topType 
+                ? 'Sugerencias basadas en tus interacciones anteriores'
+                : 'Explora el mapa para recibir recomendaciones personalizadas'}
+            </p>
+            <div className="space-y-3">
+              {recommendationsPreview.map(item => (
+                <div key={item.properties.id} className="border-l-2 border-orange-500 pl-3 flex justify-between items-center">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-white text-sm font-bold truncate">{item.properties.title}</h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] uppercase" style={{ color: item.properties.color_code }}>
+                        {item.properties.type_name}
+                      </span>
+                      <span className="text-xs text-gray-500">{item.properties.country_name} ({item.properties.start_year})</span>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8 border border-dashed border-gray-800 text-gray-600">
-                    <p className="mb-1 text-sm">No hay registros analizados aun.</p>
-                    <p className="text-xs">Accede al mapa global para comenzar a explorar.</p>
                   </div>
-                )}
-              </div>
-
-              {discoveredInterventions.length > 3 && (
-                <button 
-                  onClick={() => setShowAllDiscoveries(true)}
-                  className="mt-4 w-full flex items-center justify-center gap-1.5 text-xs text-red-400 hover:text-red-300 border border-gray-800 hover:border-red-500/50 py-2 rounded transition-colors cursor-pointer"
-                >
-                  <ChevronDown size={14} />
-                  Ver todo el historial ({discoveredInterventions.length})
-                </button>
+                </div>
+              ))}
+              {recommendationsPreview.length === 0 && (
+                <p className="text-xs text-gray-600 italic py-4 text-center">Has analizado todos los archivos disponibles.</p>
               )}
             </div>
+            {smartRecommendations.length > 3 && (
+              <button 
+                onClick={() => setShowAllRecommendations(true)}
+                className="mt-4 w-full flex items-center justify-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 border border-gray-800 hover:border-orange-500/50 py-2 rounded transition-colors cursor-pointer"
+              >
+                <ChevronDown size={14} />
+                Ver todo ({smartRecommendations.length})
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -524,26 +559,26 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MODAL: Todo el historial de descubrimientos */}
-      {showAllDiscoveries && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setShowAllDiscoveries(false)}>
-          <div className="bg-[#111] border border-gray-700 rounded shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      {/* MODAL: Todas las recomendaciones */}
+      {showAllRecommendations && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setShowAllRecommendations(false)}>
+          <div className="bg-[#111] border border-gray-700 rounded shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center p-5 border-b border-gray-800 shrink-0">
               <div className="flex items-center gap-3">
-                <Eye size={18} className="text-red-400" />
+                <AlertTriangle size={18} className="text-orange-400" />
                 <div>
-                  <h3 className="text-white font-bold text-sm uppercase">Historial completo</h3>
-                  <p className="text-[10px] text-gray-500">{discoveredInterventions.length} expedientes descubiertos</p>
+                  <h3 className="text-white font-bold text-sm uppercase">Focos Recomendados</h3>
+                  <p className="text-[10px] text-gray-500">{smartRecommendations.length} intervenciones sugeridas{topType && ` — ${recommendationLabel}`}</p>
                 </div>
               </div>
-              <button onClick={() => setShowAllDiscoveries(false)} className="text-gray-500 hover:text-white transition-colors cursor-pointer">
+              <button onClick={() => setShowAllRecommendations(false)} className="text-gray-500 hover:text-white transition-colors cursor-pointer">
                 <X size={18} />
               </button>
             </div>
             <div className="p-5 overflow-y-auto custom-scrollbar flex-1 space-y-2">
-              {discoveredInterventions.map((item) => (
-                <div key={item.properties.id} className="flex items-center justify-between p-3 bg-black border border-gray-800 hover:border-red-500/50 transition-colors rounded">
-                  <div>
+              {smartRecommendations.map(item => (
+                <div key={item.properties.id} className="flex items-center justify-between p-3 bg-black border border-gray-800 hover:border-orange-500/50 transition-colors rounded">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[10px] px-1.5 py-0.5 bg-gray-900 text-gray-400 border border-gray-700">
                         {item.properties.start_year}
@@ -554,7 +589,7 @@ export default function DashboardPage() {
                     </div>
                     <h3 className="text-sm font-semibold text-white">{item.properties.title}</h3>
                   </div>
-                  <span className="text-xs text-gray-500">{item.properties.country_name}</span>
+                  <span className="text-xs text-gray-500 shrink-0 ml-3">{item.properties.country_name}</span>
                 </div>
               ))}
             </div>

@@ -384,7 +384,7 @@ export default function MapDashboard() {
               <TrendingUp size={14} className="text-red-500" />
               ÍNDICE DE ACTIVIDAD GLOBAL
             </h3>
-            <div className="h-24 w-full">
+            <div className="h-16 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                   <XAxis 
@@ -412,6 +412,7 @@ export default function MapDashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 custom-scrollbar">
+          <h3 className="text-[10px] text-gray-500 uppercase tracking-widest font-bold px-1">SUGERENCIAS</h3>
           {filteredData.features.map((feature) => {
             const hasCommented = commentedIds.includes(feature.properties.id);
             return (
