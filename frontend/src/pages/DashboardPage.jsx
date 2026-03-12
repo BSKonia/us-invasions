@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { getInterventions } from '../services/apiClient';
-import { Target, Map as MapIcon, LogOut, Eye, AlertTriangle, MessageSquare, Star, X, ChevronDown } from 'lucide-react';
+import { Target, Map as MapIcon, LogOut, Eye, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -18,6 +19,73 @@ export default function DashboardPage() {
   const [showAllComments, setShowAllComments] = useState(false);
   const [showAllVotes, setShowAllVotes] = useState(false);
   const [showAllDiscoveries, setShowAllDiscoveries] = useState(false);
+
+  // Intervention type definitions for the stacked chart
+  const CHART_TYPES = [
+    { key: 'Bombardeo', color: '#ff5500' },
+    { key: 'Ocupación Militar', color: '#ff0055' },
+    { key: 'Operación Naval', color: '#0088ff' },
+    { key: 'Operación Encubierta', color: '#aa00ff' },
+    { key: 'Acciones WW1', color: '#8B6914' },
+    { key: 'Acciones WW2', color: '#B8860B' },
+    { key: 'Golpe de Estado', color: '#ff0000' },
+    { key: 'Injerencia Política', color: '#ffaa00' },
+    { key: 'Embargo', color: '#00C853' },
+    { key: 'Desestabilización', color: '#00E676' },
+    { key: 'Sanciones', color: '#69F0AE' },
+  ];
+
+  // Compute stacked bar chart data: interventions grouped by decade and type
+  const decadeChartData = useMemo(() => {
+    if (!allInterventions.length) return [];
+    const decades = {};
+    allInterventions.forEach(f => {
+      const year = f.properties.start_year;
+      if (year < 1890) return; // Start from 1890 like the reference image
+      let decadeStart;
+      if (year >= 2020) {
+        decadeStart = 2020; // 2020-present
+      } else {
+        decadeStart = Math.floor(year / 10) * 10;
+      }
+      if (!decades[decadeStart]) {
+        decades[decadeStart] = {};
+      }
+      const typeName = f.properties.type_name || 'Otro';
+      decades[decadeStart][typeName] = (decades[decadeStart][typeName] || 0) + 1;
+    });
+    
+    return Object.entries(decades)
+      .map(([decadeStart, types]) => {
+        const ds = parseInt(decadeStart);
+        const label = ds >= 2020 ? '2020-HOY' : `${ds}-${ds + 9}`;
+        const total = Object.values(types).reduce((sum, v) => sum + v, 0);
+        return { decade: label, _sort: ds, total, ...types };
+      })
+      .sort((a, b) => a._sort - b._sort);
+  }, [allInterventions]);
+
+  // Custom tooltip for the stacked bar chart
+  const DecadeTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+    const total = payload.reduce((sum, p) => sum + (p.value || 0), 0);
+    return (
+      <div className="bg-black border border-gray-700 rounded p-3 shadow-2xl font-mono text-xs max-w-[220px]">
+        <p className="text-white font-bold mb-2 border-b border-gray-800 pb-1">{label} <span className="text-gray-500">({total})</span></p>
+        <div className="space-y-1">
+          {payload.filter(p => p.value > 0).map(p => (
+            <div key={p.dataKey} className="flex justify-between items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.fill }}></div>
+                <span className="text-gray-400 truncate">{p.dataKey}</span>
+              </div>
+              <span className="text-white font-bold">{p.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     checkUser();
@@ -218,6 +286,83 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* ============================================ */}
+        {/* SECCION 1.5: GRAFICO DE INTERVENCIONES POR DÉCADA */}
+        {/* ============================================ */}
+        {decadeChartData.length > 0 && (
+          <div className="bg-[#111] border border-gray-800 p-4 md:p-5 mb-8">
+            <h2 className="text-gray-500 text-xs mb-4 flex items-center gap-2">
+              <TrendingUp size={14} className="text-red-500" />
+              INTERVENCIONES POR DÉCADA Y TIPO
+            </h2>
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <div className="flex" style={{ minWidth: '600px' }}>
+                {/* Chart area */}
+                <div className="flex-1" style={{ height: `${Math.max(300, decadeChartData.length * 36 + 60)}px` }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart 
+                      data={decadeChartData} 
+                      layout="vertical" 
+                      margin={{ top: 5, right: 10, bottom: 5, left: 10 }}
+                      barSize={20}
+                      barGap={2}
+                    >
+                    <XAxis type="number" hide />
+                    <YAxis 
+                      type="category" 
+                      dataKey="decade" 
+                      tick={{ fontSize: 11, fill: '#9ca3af', fontFamily: 'monospace' }} 
+                      axisLine={false}
+                      tickLine={false}
+                      width={85}
+                    />
+                    <Tooltip content={<DecadeTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                    {CHART_TYPES.map(ct => (
+                      <Bar 
+                        key={ct.key} 
+                        dataKey={ct.key} 
+                        stackId="a" 
+                        fill={ct.color}
+                        radius={0}
+                        label={({ x, y, width, height, value }) => {
+                          if (!value || width < 18) return null;
+                          return (
+                            <text x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={10} fontWeight="bold" fontFamily="monospace">
+                              {value}
+                            </text>
+                          );
+                        }}
+                      />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+                </div>
+                {/* Totals column */}
+                <div className="flex flex-col justify-start shrink-0 w-10" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
+                  {decadeChartData.map(d => (
+                    <div 
+                      key={d.decade} 
+                      className="flex items-center justify-end text-xs text-gray-400 font-bold font-mono"
+                      style={{ height: `${(Math.max(300, decadeChartData.length * 36 + 60) - 10) / decadeChartData.length}px` }}
+                    >
+                      {d.total}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* Compact legend below chart */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 pt-3 border-t border-gray-800">
+              {CHART_TYPES.map(ct => (
+                <div key={ct.key} className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ct.color }}></div>
+                  <span className="text-[10px] text-gray-500">{ct.key}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ============================================ */}
         {/* SECCION 2: STATS + DESCUBRIMIENTOS */}

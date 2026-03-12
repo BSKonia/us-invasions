@@ -56,3 +56,13 @@ body {
   margin-top: 1rem;
   margin-bottom: 0.5rem;
 }
+
+/* Mobile: hide MapLibre controls that overlap on small screens */
+@media (max-width: 768px) {
+  .maplibregl-ctrl-top-right {
+    top: 50px !important;
+  }
+  .maplibregl-popup {
+    max-width: 90vw !important;
+  }
+}

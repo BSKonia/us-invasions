@@ -194,10 +194,10 @@ export default function InterventionPopup({ feature, onClose }) {
       anchor="bottom"
       onClose={onClose}
       className="dark-popup"
-      maxWidth="450px"
+      maxWidth="380px"
       closeButton={false}
     >
-      <div className="bg-[#111] border border-gray-700 shadow-2xl rounded text-gray-300 w-[350px] font-mono overflow-hidden flex flex-col" style={{ maxHeight: '450px' }}>
+      <div className="bg-[#111] border border-gray-700 shadow-2xl rounded text-gray-300 w-[300px] sm:w-[350px] font-mono overflow-hidden flex flex-col" style={{ maxHeight: '450px' }}>
         {/* Header */}
         <div className="flex justify-between items-center p-3 border-b border-gray-800 bg-black">
           <h3 className="font-bold text-white text-sm truncate pr-2 flex-1">{feature.properties.title}</h3>
