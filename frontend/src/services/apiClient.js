@@ -101,4 +101,87 @@ export const clearAiSourcesCache = async () => {
   }
 };
 
+// ================================
+// MILITARY BASES
+// ================================
+
+export const getMilitaryBases = async () => {
+  try {
+    const response = await apiClient.get('/military_bases');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching military bases:', error);
+    return { type: "FeatureCollection", features: [] };
+  }
+};
+
+export const getBaseAiSummary = async (baseId) => {
+  try {
+    const response = await apiClient.get(`/military_bases/${baseId}/summary`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching base AI summary:', error);
+    return null;
+  }
+};
+
+export const getBaseAiSources = async (baseId, force = false) => {
+  try {
+    const params = force ? { force: true } : {};
+    const response = await apiClient.get(`/military_bases/${baseId}/ai_sources`, { params });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching base AI sources:', error);
+    return null;
+  }
+};
+
+export const getBaseComments = async (baseId) => {
+  try {
+    const response = await apiClient.get(`/military_bases/${baseId}/comments`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching base comments:', error);
+    return [];
+  }
+};
+
+export const addBaseComment = async (baseId, content, token) => {
+  try {
+    const response = await apiClient.post(
+      `/military_bases/${baseId}/comments`,
+      { content },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error adding base comment:', error);
+    throw error;
+  }
+};
+
+export const getBaseVotes = async (baseId) => {
+  try {
+    const response = await apiClient.get(`/military_bases/${baseId}/votes`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching base votes:', error);
+    return { averages: {}, total_votes: 0, raw: [] };
+  }
+};
+
+export const addBaseVote = async (baseId, category, score, token) => {
+  try {
+    const response = await apiClient.post(
+      `/military_bases/${baseId}/votes`,
+      { category, score },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error adding base vote:', error);
+    throw error;
+  }
+};
+
 export default apiClient;

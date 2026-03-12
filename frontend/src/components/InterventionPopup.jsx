@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Popup } from 'react-map-gl/maplibre';
-import { Target, AlertTriangle, Clock, X, BrainCircuit, MessageSquare, Star, Send, RefreshCw } from 'lucide-react';
+import { Target, AlertTriangle, Clock, X, BrainCircuit, MessageSquare, Star, Send, RefreshCw, Shield } from 'lucide-react';
 import { ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../services/supabaseClient';
-import { getAiSummary, getComments, addComment, getVotes, addVote, getAiSources } from '../services/apiClient';
+import { getAiSummary, getComments, addComment, getVotes, addVote, getAiSources, getBaseAiSummary, getBaseComments, addBaseComment, getBaseVotes, addBaseVote, getBaseAiSources } from '../services/apiClient';
 
 export default function InterventionPopup({ feature, onClose }) {
   const [activeTab, setActiveTab] = useState('summary');
+  const isBase = feature.properties.is_base === true;
   
   // States for AI
   const [aiSummary, setAiSummary] = useState(null);
@@ -67,7 +68,9 @@ export default function InterventionPopup({ feature, onClose }) {
     setAiLoading(true);
     setAiError(null);
     try {
-      const data = await getAiSummary(feature.properties.id);
+      const data = isBase
+        ? await getBaseAiSummary(feature.properties.id)
+        : await getAiSummary(feature.properties.id);
       if (data && data.summary) {
         setAiSummary(data.summary);
       } else {
@@ -84,7 +87,9 @@ export default function InterventionPopup({ feature, onClose }) {
     setAiSourcesLoading(true);
     setAiSourcesError(null);
     try {
-      const data = await getAiSources(feature.properties.id, force);
+      const data = isBase
+        ? await getBaseAiSources(feature.properties.id, force)
+        : await getAiSources(feature.properties.id, force);
       if (data && Array.isArray(data.sources)) {
         setAiSources(data.sources);
       } else {
@@ -100,10 +105,14 @@ export default function InterventionPopup({ feature, onClose }) {
   const fetchSocialData = async () => {
     setCommentsLoading(true);
     try {
-      const cData = await getComments(feature.properties.id);
+      const cData = isBase
+        ? await getBaseComments(feature.properties.id)
+        : await getComments(feature.properties.id);
       setComments(cData || []);
       
-      const vData = await getVotes(feature.properties.id);
+      const vData = isBase
+        ? await getBaseVotes(feature.properties.id)
+        : await getVotes(feature.properties.id);
       setVotesData(vData || { averages: {}, total_votes: 0 });
     } catch (err) {
       console.error("Error al cargar datos sociales", err);
@@ -118,9 +127,13 @@ export default function InterventionPopup({ feature, onClose }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      await addComment(feature.properties.id, newComment, session.access_token);
+      if (isBase) {
+        await addBaseComment(feature.properties.id, newComment, session.access_token);
+      } else {
+        await addComment(feature.properties.id, newComment, session.access_token);
+      }
       setNewComment("");
-      fetchSocialData(); // Refresh comments
+      fetchSocialData();
     } catch (err) {
       alert("Error al enviar comentario");
     }
@@ -136,9 +149,13 @@ export default function InterventionPopup({ feature, onClose }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      await addVote(feature.properties.id, category, score, session.access_token);
+      if (isBase) {
+        await addBaseVote(feature.properties.id, category, score, session.access_token);
+      } else {
+        await addVote(feature.properties.id, category, score, session.access_token);
+      }
       setUserVoteState(prev => ({ ...prev, [category]: score }));
-      fetchSocialData(); // Refresh averages
+      fetchSocialData();
     } catch (err) {
       alert("Error al registrar voto");
     } finally {
@@ -226,11 +243,52 @@ export default function InterventionPopup({ feature, onClose }) {
           {activeTab === 'summary' && (
             <div className="space-y-3 text-xs text-gray-400">
               <div className="flex items-center gap-2 text-white">
-                <AlertTriangle size={14} style={{ color: feature.properties.color_code }}/>
-                <span>{feature.properties.type_name}</span>
+                {isBase ? (
+                  <>
+                    <Shield size={14} color="#00CED1" />
+                    <span style={{ color: '#00CED1' }}>Base Militar</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={14} style={{ color: feature.properties.color_code }}/>
+                    <span>{feature.properties.type_name}</span>
+                  </>
+                )}
               </div>
+
+              {/* Base-specific metadata */}
+              {isBase && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {feature.properties.category && (
+                    <div className="bg-black border border-gray-800 rounded px-2 py-1.5">
+                      <span className="text-[10px] text-gray-500 uppercase block">Categoría</span>
+                      <span className="text-xs text-white">{feature.properties.category}</span>
+                    </div>
+                  )}
+                  {feature.properties.branch && (
+                    <div className="bg-black border border-gray-800 rounded px-2 py-1.5">
+                      <span className="text-[10px] text-gray-500 uppercase block">Rama</span>
+                      <span className="text-xs text-white">{feature.properties.branch}</span>
+                    </div>
+                  )}
+                  {feature.properties.status && (
+                    <div className="bg-black border border-gray-800 rounded px-2 py-1.5">
+                      <span className="text-[10px] text-gray-500 uppercase block">Estado</span>
+                      <span className={`text-xs ${feature.properties.status === 'Active' ? 'text-green-400' : feature.properties.status === 'Closed' ? 'text-red-400' : 'text-yellow-400'}`}>
+                        {feature.properties.status}
+                      </span>
+                    </div>
+                  )}
+                  {feature.properties.year_established && (
+                    <div className="bg-black border border-gray-800 rounded px-2 py-1.5">
+                      <span className="text-[10px] text-gray-500 uppercase block">Establecida</span>
+                      <span className="text-xs text-white">{feature.properties.year_established}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               
-              {feature.properties.tags && (
+              {!isBase && feature.properties.tags && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {JSON.parse(feature.properties.tags).map((tag, idx) => (
                     <span key={idx} className="bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded text-[10px] border border-red-900/50">
@@ -242,10 +300,18 @@ export default function InterventionPopup({ feature, onClose }) {
 
               <p className="leading-relaxed mt-3 text-gray-300">{feature.properties.description}</p>
               
-              <div className="flex items-center gap-2 pt-2 border-t border-gray-800 mt-2">
-                <Clock size={14} className="text-gray-500"/>
-                <span>{feature.properties.start_year} {feature.properties.end_year ? `- ${feature.properties.end_year}` : ''}</span>
-              </div>
+              {!isBase && (
+                <div className="flex items-center gap-2 pt-2 border-t border-gray-800 mt-2">
+                  <Clock size={14} className="text-gray-500"/>
+                  <span>{feature.properties.start_year} {feature.properties.end_year ? `- ${feature.properties.end_year}` : ''}</span>
+                </div>
+              )}
+              {isBase && feature.properties.year_closed && (
+                <div className="flex items-center gap-2 pt-2 border-t border-gray-800 mt-2">
+                  <Clock size={14} className="text-gray-500"/>
+                  <span>Cerrada: {feature.properties.year_closed}</span>
+                </div>
+              )}
             </div>
           )}
           
@@ -330,15 +396,15 @@ export default function InterventionPopup({ feature, onClose }) {
                 </h4>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-300">¿Justificada?</span>
+                    <span className="text-xs text-gray-300">{isBase ? '¿Necesaria?' : '¿Justificada?'}</span>
                     {renderStars('justification', votesData.averages?.justification || 0)}
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-300">Éxito Militar</span>
+                    <span className="text-xs text-gray-300">{isBase ? 'Importancia Estratégica' : 'Éxito Militar'}</span>
                     {renderStars('success', votesData.averages?.success || 0)}
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-300">Impacto Civil</span>
+                    <span className="text-xs text-gray-300">{isBase ? 'Impacto Local' : 'Impacto Civil'}</span>
                     {renderStars('impact', votesData.averages?.impact || 0)}
                   </div>
                 </div>

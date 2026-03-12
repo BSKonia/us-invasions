@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Map, { Source, Layer, Popup, Marker } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { getInterventions } from '../services/apiClient';
+import { getInterventions, getMilitaryBases } from '../services/apiClient';
 import { supabase } from '../services/supabaseClient';
-import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Zap, MessageSquare, History, Filter } from 'lucide-react';
+import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Zap, MessageSquare, History, Filter, Shield } from 'lucide-react';
 import InterventionPopup from './InterventionPopup';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -38,10 +38,13 @@ export default function MapDashboard() {
   const [showOnlyCommented, setShowOnlyCommented] = useState(false);
   const [activeFilter, setActiveFilter] = useState(null); // null | 'actuales' | 'historico'
   const [selectedType, setSelectedType] = useState(null); // null = todos, o el name del tipo
+  const [showBases, setShowBases] = useState(false);
+  const [basesData, setBasesData] = useState({ type: "FeatureCollection", features: [] });
 
   useEffect(() => {
     checkUser();
     loadData();
+    loadBases();
   }, []);
 
   const checkUser = async () => {
@@ -65,6 +68,11 @@ export default function MapDashboard() {
   const loadData = async () => {
     const geojsonData = await getInterventions(1795, 2026); // load all for timeline/chart
     setData(geojsonData);
+  };
+
+  const loadBases = async () => {
+    const geojsonBases = await getMilitaryBases();
+    setBasesData(geojsonBases);
   };
 
   const handleYearChange = (e) => {
@@ -235,6 +243,19 @@ export default function MapDashboard() {
               ))}
             </select>
           </div>
+
+          {/* Toggle Bases Militares */}
+          <button
+            onClick={() => setShowBases(!showBases)}
+            className={`mt-3 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
+              showBases
+              ? 'bg-[#00CED1]/15 text-[#00CED1] border-[#00CED1]/50'
+              : 'bg-black text-gray-400 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            <Shield size={14} />
+            {showBases ? `BASES MILITARES (${basesData.features.length})` : `MOSTRAR BASES MILITARES (${basesData.features.length})`}
+          </button>
 
           {/* Global Tension Index Chart */}
           <div className="mt-6 pt-4 border-t border-gray-800">
@@ -420,6 +441,37 @@ export default function MapDashboard() {
           ))}
 
 
+          {/* Military Base Markers */}
+          {showBases && basesData.features.map(feature => (
+            <Marker
+              key={`base-${feature.properties.id}`}
+              longitude={feature.geometry.coordinates[0]}
+              latitude={feature.geometry.coordinates[1]}
+              anchor="bottom"
+              onClick={e => {
+                e.originalEvent.stopPropagation();
+                mapRef.current?.flyTo({ center: feature.geometry.coordinates, zoom: 6 });
+                setSelectedEvent(feature);
+              }}
+            >
+              <div 
+                className="relative flex items-center justify-center cursor-pointer transition-all hover:scale-110 hover:-translate-y-1 z-10"
+                style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.8))' }}
+                onMouseEnter={() => setHoverInfo(feature.properties)}
+                onMouseLeave={() => setHoverInfo(null)}
+              >
+                <Shield 
+                  size={18} 
+                  strokeWidth={2} 
+                  color="#00CED1"
+                  fill="rgba(0, 206, 209, 0.2)"
+                  className="transition-colors"
+                />
+              </div>
+            </Marker>
+          ))}
+
+
           {/* Popup Detallado con IA y Social */}
           {selectedEvent && (
             <InterventionPopup 
@@ -440,6 +492,12 @@ export default function MapDashboard() {
               <span className="text-xs text-gray-300">{ct.name}</span>
             </div>
           ))}
+          {showBases && (
+            <div className="flex items-center gap-2 border-t border-gray-800 pt-2 mt-2">
+              <Shield size={12} color="#00CED1" fill="rgba(0, 206, 209, 0.2)" />
+              <span className="text-xs text-gray-300">Base Militar ({basesData.features.length})</span>
+            </div>
+          )}
         </div>
       </div>
 

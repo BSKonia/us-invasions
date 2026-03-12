@@ -634,6 +634,407 @@ async def add_vote(intervention_id: str, vote: VoteCreate, authorization: str = 
         return res.json()
 
 # ================================
+# BASES MILITARES
+# ================================
+
+# Fuentes de referencia para bases militares (SIEMPRE disponibles)
+BASE_REFERENCE_SOURCES = [
+    {
+        "source_name": "David Vine — American University",
+        "date": "2015-2024",
+        "headline": "Base Nation: How U.S. Military Bases Abroad Harm America and the World",
+        "url": "https://dfrlab.org/2024/03/07/mapping-us-military-bases-globally/",
+        "snippet": "Investigación del profesor David Vine (American University) sobre la red global de bases militares de EE.UU. y su impacto geopolítico."
+    },
+    {
+        "source_name": "GlobalSecurity.org",
+        "date": "Actualización continua",
+        "headline": "US Military Installations Worldwide",
+        "url": "https://www.globalsecurity.org/military/facility/",
+        "snippet": "Directorio exhaustivo de instalaciones militares de EE.UU. en todo el mundo, con datos técnicos y operativos."
+    },
+    {
+        "source_name": "Library of Congress — Congressional Research Service",
+        "date": "Informes periódicos",
+        "headline": "Overseas U.S. Military Bases: Background and Issues",
+        "url": "https://sgp.fas.org/crs/natsec/",
+        "snippet": "Informes del Servicio de Investigación del Congreso sobre el despliegue de bases militares estadounidenses en el extranjero."
+    },
+]
+
+
+@app.get("/api/military_bases")
+async def get_military_bases():
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    url = f"{SUPABASE_URL}/rest/v1/military_bases"
+    query_params = "select=*"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{url}?{query_params}", headers=headers)
+
+    data = response.json()
+    if response.status_code != 200:
+        return {"type": "FeatureCollection", "features": [], "error": data}
+
+    features = []
+    if isinstance(data, list):
+        for item in data:
+            lat = item.get("latitude")
+            lng = item.get("longitude")
+            if lat is None or lng is None:
+                continue
+
+            feature = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [float(lng), float(lat)]
+                },
+                "properties": {
+                    "id": item["id"],
+                    "name": item.get("name", ""),
+                    "title": item.get("name", ""),  # alias for popup compatibility
+                    "country_name": item.get("country_name", ""),
+                    "description": item.get("description", ""),
+                    "category": item.get("category", ""),
+                    "branch": item.get("branch", ""),
+                    "status": item.get("status", "Active"),
+                    "year_established": item.get("year_established"),
+                    "year_closed": item.get("year_closed"),
+                    "is_base": True,
+                    "color_code": "#00CED1",
+                    "type_name": "Base Militar",
+                    "has_ai_summary": item.get("ai_summary") is not None
+                }
+            }
+            features.append(feature)
+
+    return {"type": "FeatureCollection", "features": features}
+
+
+@app.get("/api/military_bases/{base_id}/summary")
+async def get_base_ai_summary(base_id: str):
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{SUPABASE_URL}/rest/v1/military_bases?id=eq.{base_id}&select=ai_summary,name,country_name,category,branch,status,year_established",
+            headers=headers
+        )
+        data = res.json()
+
+        if not data:
+            raise HTTPException(status_code=404, detail="Base militar no encontrada")
+
+        base = data[0]
+
+        if base.get("ai_summary"):
+            return {"summary": base["ai_summary"], "cached": True}
+
+        if not client_genai:
+            raise HTTPException(status_code=500, detail="Gemini API no está configurada en el servidor")
+
+        prompt = f"""
+Actúa como un experto en geopolítica militar y defensa.
+Genera un resumen de 3 párrafos sobre la siguiente base militar de EE.UU.: "{base.get('name')}" en {base.get('country_name')}.
+Categoría: {base.get('category', 'N/A')}. Rama: {base.get('branch', 'N/A')}. Estado: {base.get('status', 'N/A')}.
+{f"Año de establecimiento: {base.get('year_established')}." if base.get('year_established') else ""}
+
+Sigue estrictamente esta estructura:
+1. Historia y origen de la base (contexto geopolítico de su establecimiento).
+2. Función estratégica actual (tipo de operaciones, importancia militar regional).
+3. Impacto local y controversias (relaciones con la población, incidentes, protestas).
+
+Tono: Formal, académico y neutral.
+Idioma: Español.
+Formato: Markdown (usa negritas para nombres y fechas clave). No pongas el título, solo los párrafos.
+"""
+
+        try:
+            ai_response = client_genai.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt
+            )
+            generated_text = ai_response.text
+
+            await client.patch(
+                f"{SUPABASE_URL}/rest/v1/military_bases?id=eq.{base_id}",
+                headers=headers,
+                json={"ai_summary": generated_text}
+            )
+
+            return {"summary": generated_text, "cached": False}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error al generar con IA: {str(e)}")
+
+
+@app.get("/api/military_bases/{base_id}/ai_sources")
+async def get_base_ai_sources(base_id: str, force: bool = Query(False)):
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": "Mozilla/5.0 (compatible; USInterventions/1.0)"}) as http_client:
+        res = await http_client.get(
+            f"{SUPABASE_URL}/rest/v1/military_bases?id=eq.{base_id}&select=ai_sources,name,country_name,year_established",
+            headers=headers
+        )
+        data = res.json()
+
+        if not data:
+            raise HTTPException(status_code=404, detail="Base militar no encontrada")
+
+        base = data[0]
+
+        if base.get("ai_sources") and not force:
+            return {"sources": base["ai_sources"], "cached": True}
+
+        if not client_genai:
+            raise HTTPException(status_code=500, detail="Gemini API no configurada")
+
+        name = base.get('name', '')
+        country = base.get('country_name', '')
+        year = base.get('year_established', '')
+
+        # Fuentes de referencia para bases (siempre funcionan)
+        reference_sources = [dict(s) for s in BASE_REFERENCE_SOURCES]
+
+        # Pedir a Gemini fuentes con Google Search Grounding
+        ai_verified_sources = []
+        try:
+            prompt = (
+                f'Busca artículos y documentos REALES sobre la base militar de EE.UU.: '
+                f'"{name}" en {country}.\n\n'
+                f'Necesito exactamente 4 fuentes periodísticas o académicas que pueda consultar online ahora mismo.\n\n'
+                f'REGLAS ESTRICTAS:\n'
+                f'- SOLO incluye URLs que existan REALMENTE y que hayas encontrado en tu búsqueda de Google.\n'
+                f'- Prioriza: artículos de prensa (NYT, BBC, Reuters, The Guardian, The Intercept, High North News), '
+                f'documentos del GAO, Congressional Research Service, informes militares oficiales.\n'
+                f'- NO inventes URLs. NO uses Wikipedia.\n'
+                f'- Varía las fuentes: usa al menos 3 medios diferentes.\n\n'
+                f'DEVUELVE SOLO un array JSON (sin markdown, sin ```), con esta estructura:\n'
+                f'[\n'
+                f'  {{\n'
+                f'    "source_name": "Nombre del medio",\n'
+                f'    "date": "Fecha publicación",\n'
+                f'    "headline": "Titular exacto del artículo",\n'
+                f'    "url": "https://url-real-verificada",\n'
+                f'    "snippet": "Resumen de 1-2 líneas."\n'
+                f'  }}\n'
+                f']'
+            )
+
+            ai_response = client_genai.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                )
+            )
+            raw_text = ai_response.text or ""
+
+            candidate_sources = []
+
+            clean_text = raw_text.replace("```json", "").replace("```", "").strip()
+            try:
+                parsed_sources = json.loads(clean_text)
+                if isinstance(parsed_sources, list):
+                    candidate_sources.extend(parsed_sources)
+            except json.JSONDecodeError:
+                pass
+
+            grounded_urls = []
+            if ai_response.candidates and ai_response.candidates[0].grounding_metadata:
+                gm = ai_response.candidates[0].grounding_metadata
+                if gm.grounding_chunks:
+                    for chunk in gm.grounding_chunks:
+                        if chunk.web and chunk.web.uri:
+                            grounded_urls.append({
+                                "uri": chunk.web.uri,
+                                "title": chunk.web.title or "",
+                                "domain": chunk.web.domain or ""
+                            })
+
+            candidate_urls = {s.get("url", "") for s in candidate_sources}
+            for g_url in grounded_urls:
+                if g_url["uri"] not in candidate_urls:
+                    candidate_sources.append({
+                        "source_name": g_url.get("domain", "Fuente verificada"),
+                        "date": str(year) if year else "N/A",
+                        "headline": g_url.get("title", f"Artículo sobre {name}"),
+                        "url": g_url["uri"],
+                        "snippet": f"Fuente encontrada por Google sobre la base {name} en {country}."
+                    })
+                    candidate_urls.add(g_url["uri"])
+
+            if candidate_sources:
+                print(f"[BASE SOURCES] Verificando {len(candidate_sources)} URLs candidatas para '{name}'...")
+                ai_verified_sources = await verify_and_filter_sources(http_client, candidate_sources)
+                print(f"[BASE SOURCES] {len(ai_verified_sources)}/{len(candidate_sources)} URLs verificadas OK")
+
+        except Exception as e:
+            print(f"[BASE SOURCES] Error en Gemini Grounding: {e}")
+
+        # Combinar fuentes
+        final_sources = []
+        seen_urls = set()
+
+        for source in ai_verified_sources:
+            url = source.get("url", "")
+            if url and url not in seen_urls:
+                final_sources.append(source)
+                seen_urls.add(url)
+
+        # Press search URLs for bases
+        en_name = _translate_to_english(name)
+        press_sources = generate_press_search_sources(en_name, country, year if year else "US military base")
+        for ps in press_sources:
+            url = ps.get("url", "")
+            if url and url not in seen_urls:
+                final_sources.append(ps)
+                seen_urls.add(url)
+
+        for ref_source in reference_sources:
+            if ref_source["url"] not in seen_urls:
+                final_sources.append(ref_source)
+                seen_urls.add(ref_source["url"])
+
+        # Guardar en DB
+        await http_client.patch(
+            f"{SUPABASE_URL}/rest/v1/military_bases?id=eq.{base_id}",
+            headers=headers,
+            json={"ai_sources": final_sources}
+        )
+
+        return {"sources": final_sources, "cached": False}
+
+
+# ================================
+# BASES MILITARES: COMENTARIOS
+# ================================
+@app.get("/api/military_bases/{base_id}/comments")
+async def get_base_comments(base_id: str):
+    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{SUPABASE_URL}/rest/v1/base_comments_with_users?base_id=eq.{base_id}&order=created_at.desc",
+            headers=headers
+        )
+        if res.status_code != 200 or "details" in res.text.lower():
+            res = await client.get(
+                f"{SUPABASE_URL}/rest/v1/base_comments?base_id=eq.{base_id}&order=created_at.desc",
+                headers=headers
+            )
+        return res.json()
+
+
+@app.post("/api/military_bases/{base_id}/comments")
+async def add_base_comment(base_id: str, comment: CommentCreate, authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": authorization,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+    async with httpx.AsyncClient() as client:
+        user_res = await client.get(f"{SUPABASE_URL}/auth/v1/user", headers=headers)
+        if user_res.status_code != 200:
+            raise HTTPException(status_code=401, detail="Token inválido")
+
+        user_id = user_res.json().get("id")
+
+        res = await client.post(
+            f"{SUPABASE_URL}/rest/v1/base_comments",
+            headers=headers,
+            json={
+                "base_id": base_id,
+                "user_id": user_id,
+                "content": comment.content
+            }
+        )
+        return res.json()
+
+
+# ================================
+# BASES MILITARES: VOTOS
+# ================================
+@app.get("/api/military_bases/{base_id}/votes")
+async def get_base_votes(base_id: str):
+    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{SUPABASE_URL}/rest/v1/base_votes?base_id=eq.{base_id}",
+            headers=headers
+        )
+
+        data = res.json()
+        if not data or not isinstance(data, list):
+            return {"averages": {}, "total_votes": 0, "raw": []}
+
+        stats = {}
+        for vote in data:
+            cat = vote["category"]
+            if cat not in stats:
+                stats[cat] = {"total_score": 0, "count": 0}
+            stats[cat]["total_score"] += vote["score"]
+            stats[cat]["count"] += 1
+
+        averages = {cat: round(v["total_score"] / v["count"], 1) for cat, v in stats.items()}
+        return {"averages": averages, "total_votes": len(data), "raw": data}
+
+
+@app.post("/api/military_bases/{base_id}/votes")
+async def add_base_vote(base_id: str, vote: VoteCreate, authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
+
+    if vote.score < 1 or vote.score > 5:
+        raise HTTPException(status_code=400, detail="Puntuación debe estar entre 1 y 5")
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": authorization,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation,resolution=merge-duplicates"
+    }
+
+    async with httpx.AsyncClient() as client:
+        user_res = await client.get(f"{SUPABASE_URL}/auth/v1/user", headers=headers)
+        if user_res.status_code != 200:
+            raise HTTPException(status_code=401, detail="Token inválido")
+
+        user_id = user_res.json().get("id")
+
+        res = await client.post(
+            f"{SUPABASE_URL}/rest/v1/base_votes",
+            headers=headers,
+            json={
+                "base_id": base_id,
+                "user_id": user_id,
+                "category": vote.category,
+                "score": vote.score
+            }
+        )
+        return res.json()
+
+
+# ================================
 # HELPERS
 # ================================
 def get_icon(type_name):
