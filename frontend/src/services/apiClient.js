@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -181,6 +181,30 @@ export const addBaseVote = async (baseId, category, score, token) => {
   } catch (error) {
     console.error('Error adding base vote:', error);
     throw error;
+  }
+};
+
+// ================================
+// DASHBOARD FEATURES
+// ================================
+
+export const getEphemeris = async () => {
+  try {
+    const response = await apiClient.get('/ephemeris');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching ephemeris:', error);
+    return { date: '', interventions: [] };
+  }
+};
+
+export const getRecentActivity = async (limit = 15) => {
+  try {
+    const response = await apiClient.get('/recent_activity', { params: { limit } });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching recent activity:', error);
+    return [];
   }
 };
 

@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
-import { getInterventions } from '../services/apiClient';
-import { Target, Map as MapIcon, LogOut, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp, Filter } from 'lucide-react';
+import { getInterventions, getEphemeris, getRecentActivity } from '../services/apiClient';
+import { Target, Map as MapIcon, LogOut, AlertTriangle, MessageSquare, Star, X, ChevronDown, TrendingUp, Filter, Calendar, Radio, MapPin } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import Map, { Marker } from 'react-map-gl/maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'Pw2ozdqe8K3Hu9Qg6OkX';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -20,16 +24,20 @@ export default function DashboardPage() {
   const [showAllVotes, setShowAllVotes] = useState(false);
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
 
+  // Ephemeris and activity feed
+  const [ephemeris, setEphemeris] = useState(null);
+  const [recentActivity, setRecentActivity] = useState([]);
+
   // Intervention type definitions for the stacked chart
   const CHART_TYPES = [
-    { key: 'Bombardeo', color: '#ff5500' },
-    { key: 'Ocupación Militar', color: '#ff0055' },
-    { key: 'Operación Naval', color: '#0088ff' },
-    { key: 'Operación Encubierta', color: '#aa00ff' },
-    { key: 'Acciones WW1', color: '#8B6914' },
-    { key: 'Acciones WW2', color: '#B8860B' },
-    { key: 'Golpe de Estado', color: '#ff0000' },
-    { key: 'Injerencia Política', color: '#ffaa00' },
+    { key: 'Bombardeo', color: '#CC2200' },
+    { key: 'Ocupación Militar', color: '#E63600' },
+    { key: 'Operación Naval', color: '#FF4D2A' },
+    { key: 'Operación Encubierta', color: '#D9004C' },
+    { key: 'Acciones WW1', color: '#B33A3A' },
+    { key: 'Acciones WW2', color: '#FF6666' },
+    { key: 'Golpe de Estado', color: '#E67700' },
+    { key: 'Injerencia Política', color: '#FFA033' },
     { key: 'Embargo', color: '#00C853' },
     { key: 'Desestabilización', color: '#00E676' },
     { key: 'Sanciones', color: '#69F0AE' },
@@ -123,7 +131,10 @@ export default function DashboardPage() {
       
       // If no profile exists, try to create it from user_metadata
       if (!profileData) {
-        const metaUsername = currentUser.user_metadata?.username;
+        const metaUsername = currentUser.user_metadata?.username 
+          || currentUser.user_metadata?.full_name 
+          || currentUser.user_metadata?.name
+          || currentUser.email?.split('@')[0];
         if (metaUsername) {
           const { data: newProfile } = await supabase
             .from('profiles')
@@ -135,7 +146,11 @@ export default function DashboardPage() {
       }
 
       // Final fallback: use user_metadata directly
-      setProfile(profileData || { username: currentUser.user_metadata?.username });
+      setProfile(profileData || { 
+        username: currentUser.user_metadata?.username 
+          || currentUser.user_metadata?.full_name 
+          || currentUser.email?.split('@')[0] 
+      });
 
       const { data: discoveries } = await supabase
         .from('user_discovered_interventions')
@@ -162,6 +177,14 @@ export default function DashboardPage() {
       if (data && data.features) {
         setAllInterventions(data.features);
       }
+
+      // Load ephemeris and recent activity in parallel
+      const [ephemerisData, activityData] = await Promise.all([
+        getEphemeris(),
+        getRecentActivity(15),
+      ]);
+      setEphemeris(ephemerisData);
+      setRecentActivity(activityData);
     } catch (error) {
       console.error("Error loading dashboard data", error);
     } finally {
@@ -178,6 +201,19 @@ export default function DashboardPage() {
     justification: 'Justificada',
     success: 'Exito Militar',
     impact: 'Impacto Civil'
+  };
+
+  const getTimeAgo = (dateStr) => {
+    if (!dateStr) return '';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'ahora';
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d`;
+    return `${Math.floor(days / 30)}mes`;
   };
 
   if (loading) {
@@ -357,45 +393,45 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Militar */}
             <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#ff2020] border-b border-[#ff2020]/20 pb-1">Militar</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#E63600] border-b border-[#E63600]/20 pb-1">Militar</h3>
               <div className="space-y-1.5">
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ff5500' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#CC2200' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Bombardeo</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Ataques aéreos y bombardeos estratégicos</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ff0055' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#E63600' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Ocupación Militar</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Despliegue de tropas y ocupación territorial</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#0088ff' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#FF4D2A' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Operación Naval</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Bloqueos navales y despliegue de flotas</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#aa00ff' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#D9004C' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Operación Encubierta</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Acciones clandestinas de la CIA y operaciones secretas</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#8B6914' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#B33A3A' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Acciones WW1</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Intervenciones durante la Primera Guerra Mundial</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#B8860B' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#FF6666' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Acciones WW2</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Intervenciones durante la Segunda Guerra Mundial</p>
@@ -405,17 +441,17 @@ export default function DashboardPage() {
             </div>
             {/* Político */}
             <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#ffaa00] border-b border-[#ffaa00]/20 pb-1">Político</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#E67700] border-b border-[#E67700]/20 pb-1">Político</h3>
               <div className="space-y-1.5">
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ff0000' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#E67700' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Golpe de Estado</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Apoyo o ejecución de golpes contra gobiernos</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#ffaa00' }}></div>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: '#FFA033' }}></div>
                   <div>
                     <span className="text-[11px] text-white font-semibold">Injerencia Política</span>
                     <p className="text-[10px] text-gray-500 leading-tight">Manipulación electoral e influencia política</p>
@@ -546,6 +582,65 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+           </div>
+        )}
+
+        {/* ============================================ */}
+        {/* SECCION 1.5c: EFEMÉRIDES — "Tal día como hoy..." */}
+        {/* ============================================ */}
+        {ephemeris && ephemeris.interventions && ephemeris.interventions.length > 0 && (
+          <div className="bg-[#111] border border-gray-800 p-4 md:p-5 mb-8">
+            <h2 className="text-gray-500 text-xs mb-4 flex items-center gap-2">
+              <Calendar size={14} className="text-amber-500" />
+              TAL DÍA COMO HOY — {ephemeris.day}/{ephemeris.month}
+            </h2>
+            <p className="text-[10px] text-gray-600 mb-4">
+              Intervenciones destacadas seleccionadas para hoy. La historia no descansa.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {ephemeris.interventions.map(inv => (
+                <div key={inv.id} className="bg-black border border-gray-800 hover:border-amber-500/30 transition-colors rounded overflow-hidden group">
+                  {/* Live mini-map with MapLibre */}
+                  <div className="w-full h-28 bg-gray-900 relative overflow-hidden">
+                    <Map
+                      initialViewState={{
+                        longitude: inv.longitude,
+                        latitude: inv.latitude,
+                        zoom: 3,
+                      }}
+                      style={{ width: '100%', height: '100%' }}
+                      mapStyle={`https://api.maptiler.com/maps/hybrid/style.json?key=${MAPTILER_KEY}`}
+                      interactive={false}
+                      attributionControl={false}
+                    >
+                      <Marker longitude={inv.longitude} latitude={inv.latitude} anchor="bottom">
+                        <MapPin size={22} strokeWidth={2.5} style={{ color: inv.type_color, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.9))' }} />
+                      </Marker>
+                    </Map>
+                    <div className="absolute top-2 left-2 flex items-center gap-1 z-10">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: inv.type_color }}></div>
+                      <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 bg-black/70 text-gray-300 rounded">
+                        {inv.type_name}
+                      </span>
+                    </div>
+                    <div className="absolute bottom-2 right-2 text-[10px] bg-black/70 text-gray-400 px-1.5 py-0.5 rounded z-10">
+                      {inv.start_year}{inv.end_year ? `–${inv.end_year}` : ''}
+                    </div>
+                  </div>
+                  <div className="p-3">
+                    <h3 className="text-white text-xs font-bold leading-tight mb-1 truncate">{inv.title}</h3>
+                    <p className="text-[10px] text-gray-500 mb-2.5 leading-tight line-clamp-2">{inv.description}</p>
+                    <button
+                      onClick={() => navigate(`/map?lat=${inv.latitude}&lng=${inv.longitude}&year=${inv.start_year}&id=${inv.id}`)}
+                      className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-400 transition-colors cursor-pointer"
+                    >
+                      <MapPin size={10} />
+                      Ver en el mapa
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -617,6 +712,62 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ============================================ */}
+      {/* SECCION 3: GLOBAL INTELLIGENCE FEED */}
+      {/* ============================================ */}
+      {recentActivity.length > 0 && (
+        <div className="max-w-5xl mx-auto px-4 md:px-8 mt-8 mb-8">
+          <div className="bg-[#0a0a0a] border border-gray-800 rounded overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+              <Radio size={12} className="text-green-500 animate-pulse" />
+              <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest">Global Intelligence Feed</span>
+              <span className="text-[9px] text-gray-600 ml-auto font-mono">LIVE</span>
+            </div>
+            <div className="divide-y divide-gray-900 max-h-64 overflow-y-auto custom-scrollbar">
+              {recentActivity.map((activity, idx) => {
+                const isComment = activity.type === 'comment';
+                const isBase = activity.target === 'base';
+                const timeAgo = getTimeAgo(activity.created_at);
+                
+                return (
+                  <div key={idx} className="px-4 py-2.5 flex items-start gap-3 hover:bg-[#111] transition-colors font-mono">
+                    <span className="text-[10px] text-gray-700 shrink-0 w-16 pt-0.5">{timeAgo}</span>
+                    <div className="flex-1 min-w-0">
+                      {isComment ? (
+                        <p className="text-[11px] text-gray-400 leading-tight">
+                          <span className="text-blue-400">{'>'}</span>{' '}
+                          Alguien comentó en{' '}
+                          <span className={isBase ? 'text-teal-400' : 'text-red-400'}>
+                            &ldquo;{activity.target_name}&rdquo;
+                          </span>
+                          {activity.preview && (
+                            <span className="text-gray-600"> — &ldquo;{activity.preview}...&rdquo;</span>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-gray-400 leading-tight">
+                          <span className="text-yellow-500">{'*'}</span>{' '}
+                          <span className={isBase ? 'text-teal-400' : 'text-red-400'}>
+                            &ldquo;{activity.target_name}&rdquo;
+                          </span>
+                          {' '}recibió{' '}
+                          <span className="text-yellow-400">{activity.score}/5</span>
+                          {' '}en{' '}
+                          <span className="text-gray-500">{activity.category === 'justification' ? 'Justificación' : activity.category === 'success' ? 'Éxito Militar' : activity.category === 'impact' ? 'Impacto Civil' : activity.category}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-4 py-2 border-t border-gray-800 text-center">
+              <span className="text-[9px] text-gray-700 uppercase tracking-wider">Actividad anónima de la comunidad</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============================================ */}
       {/* MODALES */}

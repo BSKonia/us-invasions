@@ -7,6 +7,8 @@ import re
 import httpx
 import json
 import asyncio
+import random
+from datetime import date
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -1040,6 +1042,189 @@ async def add_base_vote(base_id: str, vote: VoteCreate, authorization: str = Hea
             }
         )
         return res.json()
+
+
+# ================================
+# EFEMÉRIDES — "Tal día como hoy..."
+# ================================
+@app.get("/api/ephemeris")
+async def get_ephemeris():
+    """
+    Returns a selection of historical interventions relevant to today's date.
+    Since we only have start_year (no month/day), we use a deterministic-random
+    approach: seed the RNG with today's date so the same interventions are shown
+    all day, but change each day. Picks up to 3 interventions.
+    """
+    today = date.today()
+    
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
+
+    # Map type names to categories (no category column in DB)
+    TYPE_CATEGORIES = {
+        'Bombardeo': 'Militar', 'Ocupación Militar': 'Militar',
+        'Operación Naval': 'Militar', 'Operación Encubierta': 'Militar',
+        'Acciones WW1': 'Militar', 'Acciones WW2': 'Militar',
+        'Golpe de Estado': 'Político', 'Injerencia Política': 'Político',
+        'Embargo': 'Económico', 'Desestabilización': 'Económico', 'Sanciones': 'Económico',
+    }
+
+    async with httpx.AsyncClient() as client:
+        # Fetch all interventions with their type info
+        res = await client.get(
+            f"{SUPABASE_URL}/rest/v1/interventions?select=id,title,description,country_name,latitude,longitude,start_year,end_year,intervention_types(name,color_code)&order=start_year.asc",
+            headers=headers,
+        )
+        if res.status_code != 200:
+            raise HTTPException(status_code=500, detail="Error fetching interventions")
+
+        all_interventions = res.json()
+        if not all_interventions:
+            return {"date": today.isoformat(), "interventions": []}
+
+        # Use today's date as seed for deterministic daily selection
+        day_seed = today.year * 10000 + today.month * 100 + today.day
+        rng = random.Random(day_seed)
+
+        # Prioritize interventions from the same month/day numerically
+        # (e.g. March 13 → prefer interventions starting in year ending in 13, or 1913, etc.)
+        # This is a heuristic since we lack month/day data
+        scored = []
+        for inv in all_interventions:
+            score = rng.random()
+            year = inv.get("start_year", 0)
+            # Boost if the year shares last 2 digits with day-of-year
+            day_of_year = today.timetuple().tm_yday
+            if year % 100 == today.day:
+                score += 2
+            elif year % 10 == today.month:
+                score += 1
+            # Always add some randomness
+            scored.append((score, inv))
+
+        scored.sort(key=lambda x: -x[0])
+        selected = [item[1] for item in scored[:3]]
+
+        # Format response
+        ephemeris = []
+        for inv in selected:
+            type_info = inv.get("intervention_types") or {}
+            type_name = type_info.get("name", "Otro")
+            ephemeris.append({
+                "id": inv["id"],
+                "title": inv["title"],
+                "description": (inv.get("description") or "")[:200],
+                "country_name": inv["country_name"],
+                "latitude": inv["latitude"],
+                "longitude": inv["longitude"],
+                "start_year": inv["start_year"],
+                "end_year": inv.get("end_year"),
+                "type_name": type_name,
+                "type_color": type_info.get("color_code", "#888"),
+                "category": TYPE_CATEGORIES.get(type_name, "Militar"),
+            })
+
+        return {
+            "date": today.isoformat(),
+            "day": today.day,
+            "month": today.month,
+            "interventions": ephemeris,
+        }
+
+
+# ================================
+# GLOBAL INTELLIGENCE FEED — Recent activity
+# ================================
+@app.get("/api/recent_activity")
+async def get_recent_activity(limit: int = Query(default=15, ge=1, le=50)):
+    """
+    Returns recent anonymous activity across the platform:
+    comments and votes on interventions and bases.
+    """
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
+
+    activities = []
+
+    async with httpx.AsyncClient() as client:
+        # Fetch recent intervention comments
+        int_comments_res, int_votes_res, base_comments_res, base_votes_res = await asyncio.gather(
+            client.get(
+                f"{SUPABASE_URL}/rest/v1/intervention_comments?select=id,created_at,content,interventions(title)&order=created_at.desc&limit={limit}",
+                headers=headers,
+            ),
+            client.get(
+                f"{SUPABASE_URL}/rest/v1/intervention_votes?select=id,created_at,category,score,interventions(title)&order=created_at.desc&limit={limit}",
+                headers=headers,
+            ),
+            client.get(
+                f"{SUPABASE_URL}/rest/v1/base_comments?select=id,created_at,content,military_bases(name)&order=created_at.desc&limit={limit}",
+                headers=headers,
+            ),
+            client.get(
+                f"{SUPABASE_URL}/rest/v1/base_votes?select=id,created_at,category,score,military_bases(name)&order=created_at.desc&limit={limit}",
+                headers=headers,
+            ),
+        )
+
+        # Process intervention comments
+        if int_comments_res.status_code == 200:
+            for c in int_comments_res.json():
+                title = (c.get("interventions") or {}).get("title", "Intervención")
+                activities.append({
+                    "type": "comment",
+                    "target": "intervention",
+                    "target_name": title,
+                    "preview": (c.get("content") or "")[:80],
+                    "created_at": c["created_at"],
+                })
+
+        # Process intervention votes
+        if int_votes_res.status_code == 200:
+            for v in int_votes_res.json():
+                title = (v.get("interventions") or {}).get("title", "Intervención")
+                activities.append({
+                    "type": "vote",
+                    "target": "intervention",
+                    "target_name": title,
+                    "category": v.get("category", ""),
+                    "score": v.get("score", 0),
+                    "created_at": v["created_at"],
+                })
+
+        # Process base comments
+        if base_comments_res.status_code == 200:
+            for c in base_comments_res.json():
+                name = (c.get("military_bases") or {}).get("name", "Base Militar")
+                activities.append({
+                    "type": "comment",
+                    "target": "base",
+                    "target_name": name,
+                    "preview": (c.get("content") or "")[:80],
+                    "created_at": c["created_at"],
+                })
+
+        # Process base votes
+        if base_votes_res.status_code == 200:
+            for v in base_votes_res.json():
+                name = (v.get("military_bases") or {}).get("name", "Base Militar")
+                activities.append({
+                    "type": "vote",
+                    "target": "base",
+                    "target_name": name,
+                    "category": v.get("category", ""),
+                    "score": v.get("score", 0),
+                    "created_at": v["created_at"],
+                })
+
+    # Sort all activities by created_at descending
+    activities.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    return activities[:limit]
 
 
 # ================================

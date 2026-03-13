@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { Target, Lock, Mail, AlertTriangle } from 'lucide-react';
@@ -8,19 +8,48 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [isLogin, setIsLogin] = useState(true);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const navigate = useNavigate();
 
-    const handleAuth = async (e) => {
+  // Check if user is already logged in and load remembered email
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        navigate('/dashboard');
+      }
+    };
+    checkUser();
+
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, [navigate]);
+
+  const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        
+        // Save or remove remembered email ONLY on successful login
+        if (rememberMe) {
+          localStorage.setItem('rememberedEmail', email);
+        } else {
+          localStorage.removeItem('rememberedEmail');
+        }
+
+        navigate('/dashboard');
       } else {
         if (!username.trim()) throw new Error("Debes proporcionar un Nombre de Usuario");
         
@@ -41,9 +70,15 @@ export default function LoginPage() {
                 console.error("Error creating profile", profileError);
             }
         }
+        
+        // Sign out automatically to force the user to log in manually
+        await supabase.auth.signOut();
+        
+        // Switch to login view, clear password, and show success message
+        setIsLogin(true);
+        setPassword('');
+        setSuccess("Registro exitoso. Por favor, inicia sesión con tu nueva cuenta.");
       }
-      
-      navigate('/dashboard');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -67,6 +102,13 @@ export default function LoginPage() {
           <div className="mb-4 p-3 bg-red-900/20 border border-red-500/50 text-red-400 text-xs flex items-center gap-2">
             <AlertTriangle size={14} />
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 p-3 bg-green-900/20 border border-green-500/50 text-green-400 text-xs flex items-center gap-2">
+            <Target size={14} />
+            {success}
           </div>
         )}
 
@@ -115,6 +157,20 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* Remember me checkbox */}
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="checkbox"
+              id="rememberMe"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-3.5 h-3.5 accent-red-500 bg-[#0a0a0a] border-gray-700 cursor-pointer"
+            />
+            <label htmlFor="rememberMe" className="text-xs text-gray-500 cursor-pointer select-none">
+              Recordar sesión
+            </label>
+          </div>
+
           <button 
             type="submit" 
             disabled={loading}
@@ -126,7 +182,11 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center text-xs">
           <button 
-            onClick={() => setIsLogin(!isLogin)} 
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError(null);
+              setSuccess(null);
+            }} 
             className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer"
           >
             {isLogin ? '¿No tienes cuenta? Regístrate aquí.' : '¿Ya tienes cuenta? Inicia sesión aquí.'}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Map, { Source, Layer, Popup, Marker } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getInterventions, getMilitaryBases } from '../services/apiClient';
@@ -14,22 +14,22 @@ const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'Pw2ozdqe8K3Hu9Qg6OkX'
 const CONFLICT_CATEGORIES = [
   {
     category: 'Militar',
-    color: '#ff2020',   // color representativo de la categoría
+    color: '#E63600',
     types: [
-      { name: 'Bombardeo', color: '#ff5500' },
-      { name: 'Ocupación Militar', color: '#ff0055' },
-      { name: 'Operación Naval', color: '#0088ff' },
-      { name: 'Operación Encubierta', color: '#aa00ff' },
-      { name: 'Acciones WW1', color: '#8B6914' },
-      { name: 'Acciones WW2', color: '#B8860B' },
+      { name: 'Bombardeo', color: '#CC2200' },
+      { name: 'Ocupación Militar', color: '#E63600' },
+      { name: 'Operación Naval', color: '#FF4D2A' },
+      { name: 'Operación Encubierta', color: '#D9004C' },
+      { name: 'Acciones WW1', color: '#B33A3A' },
+      { name: 'Acciones WW2', color: '#FF6666' },
     ],
   },
   {
     category: 'Político',
-    color: '#ffaa00',
+    color: '#E67700',
     types: [
-      { name: 'Golpe de Estado', color: '#ff0000' },
-      { name: 'Injerencia Política', color: '#ffaa00' },
+      { name: 'Golpe de Estado', color: '#E67700' },
+      { name: 'Injerencia Política', color: '#FFA033' },
     ],
   },
   {
@@ -61,6 +61,7 @@ CONFLICT_CATEGORIES.forEach(cat => {
 export default function MapDashboard() {
   const mapRef = useRef();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState({ type: "FeatureCollection", features: [] });
   const [yearRange, setYearRange] = useState([1795, 1795]);
   const [hoverInfo, setHoverInfo] = useState(null);
@@ -97,6 +98,34 @@ export default function MapDashboard() {
     loadData();
     loadBases();
   }, []);
+
+  // Handle URL query params from ephemeris "Ver en el mapa"
+  useEffect(() => {
+    const lat = parseFloat(searchParams.get('lat'));
+    const lng = parseFloat(searchParams.get('lng'));
+    const year = parseInt(searchParams.get('year'));
+    const interventionId = searchParams.get('id');
+    
+    if (!isNaN(year) && year >= 1795) {
+      setYearRange([1795, Math.min(year, 2026)]);
+    }
+    if (!isNaN(lat) && !isNaN(lng) && mapRef.current) {
+      setTimeout(() => {
+        mapRef.current.flyTo({ center: [lng, lat], zoom: 5, duration: 1500 });
+      }, 500);
+    }
+
+    // Auto-open the intervention modal if id is provided and data is loaded
+    if (interventionId && data.features.length > 0) {
+      const feature = data.features.find(f => f.properties.id === interventionId);
+      if (feature) {
+        setTimeout(() => {
+          setSelectedEvent(feature);
+          setActiveTab('summary');
+        }, 800);
+      }
+    }
+  }, [searchParams, data]);
 
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
