@@ -605,8 +605,8 @@ export default function MapDashboard() {
         {/* Timeline Slider */}
         <div className="px-4 md:px-6 pb-4 md:pb-6 pt-3 bg-[#0a0a0a]">
           <label className="text-xs text-gray-400 flex justify-between mb-6">
-            <span>DESDE: <strong className="text-red-500">{yearRange[0]}</strong></span>
-            <span>HASTA: <strong className="text-red-500">{yearRange[1]}</strong></span>
+            <span>DESDE: <strong className="text-red-500">1795</strong></span>
+            <span>HASTA: <strong className="text-red-500">2026</strong></span>
           </label>
           <div className="relative">
             {/* Year tooltip above thumb */}
