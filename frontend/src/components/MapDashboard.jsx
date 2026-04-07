@@ -6,7 +6,7 @@ import { getInterventions, getMilitaryBases } from '../services/apiClient';
 import { supabase } from '../services/supabaseClient';
 import { Target, AlertTriangle, Clock, X, ArrowLeft, Eye, TrendingUp, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Zap, MessageSquare, History, Filter, Shield, Sun, Moon, ChevronDown, ChevronUp, Menu } from 'lucide-react';
 import InterventionPopup from './InterventionPopup';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'Pw2ozdqe8K3Hu9Qg6OkX';
 
@@ -75,6 +75,7 @@ export default function MapDashboard() {
   const [showOnlyCommented, setShowOnlyCommented] = useState(false);
   const [activeFilter, setActiveFilter] = useState(null); // null | 'actuales' | 'historico'
   const [selectedFilter, setSelectedFilter] = useState(null); // null = all, category name, or type name
+  const [selectedPeriod, setSelectedPeriod] = useState(null); // null | period start year
   const [showBases, setShowBases] = useState(false);
   const [basesData, setBasesData] = useState({ type: "FeatureCollection", features: [] });
   const [darkMode, setDarkMode] = useState(true);
@@ -158,6 +159,22 @@ export default function MapDashboard() {
   const handleYearChange = (e) => {
     setYearRange([1795, parseInt(e.target.value)]);
     setActiveFilter(null); // Deselect buttons when user manually adjusts slider
+    setSelectedPeriod(null);
+  };
+
+  const handlePeriodClick = (periodStart) => {
+    if (selectedPeriod === periodStart) {
+      // Toggle off if clicking the same period
+      setSelectedPeriod(null);
+      setYearRange([1795, 2026]);
+      return;
+    }
+    setSelectedPeriod(periodStart);
+    setSelectedFilter(null);
+    setShowOnlyCommented(false);
+    setShowBasesTemporal(false);
+    setActiveFilter(null);
+    setYearRange([periodStart, Math.min(periodStart + 24, 2026)]);
   };
 
   const onPointClick = (event) => {
@@ -227,7 +244,7 @@ export default function MapDashboard() {
       return Object.entries(periods)
         .map(([periodStart, count]) => ({
           period: `${periodStart}`,
-          events: count
+          eventos: count
         }))
         .sort((a, b) => parseInt(a.period) - parseInt(b.period));
     }
@@ -245,7 +262,7 @@ export default function MapDashboard() {
     return Object.entries(periods)
       .map(([periodStart, count]) => ({
         period: `${periodStart}`,
-        events: count
+        eventos: count
       }))
       .sort((a, b) => parseInt(a.period) - parseInt(b.period));
   }, [data.features, activeTypeNames, showBasesTemporal, basesData.features]);
@@ -360,13 +377,13 @@ export default function MapDashboard() {
         }`}
       >
         <div style={{ minWidth: '280px', width: '100%', height: '100%', display: isSidebarOpen ? 'flex' : 'none', flexDirection: 'column' }}>
-        <div className="p-4 md:p-6 border-b border-gray-800 relative">
-          <div className="flex justify-between items-start mb-4">
+        <div className="p-3 md:p-4 border-b border-gray-800 relative">
+          <div className="flex justify-between items-start mb-2">
             <button 
               onClick={() => navigate('/dashboard')}
-              className="flex items-center gap-2 text-xs font-bold bg-black border border-gray-700 text-gray-400 px-3 py-1.5 rounded hover:text-white hover:border-gray-500 transition-colors"
+              className="flex items-center gap-1.5 text-[10px] font-bold bg-black border border-gray-700 text-gray-400 px-2.5 py-1 rounded hover:text-white hover:border-gray-500 transition-colors"
             >
-              <LayoutDashboard size={14} />
+              <LayoutDashboard size={12} />
               <span className="hidden sm:inline">VOLVER AL MENÚ PERSONAL</span>
               <span className="sm:hidden">MENÚ</span>
             </button>
@@ -376,20 +393,20 @@ export default function MapDashboard() {
               className="text-gray-500 hover:text-white transition-colors p-1"
               title="Minimizar Panel"
             >
-              <ChevronLeft size={20} />
+              <ChevronLeft size={16} />
             </button>
           </div>
           
-          <h1 className="text-xl md:text-2xl font-bold text-red-500 tracking-tighter flex items-center gap-2 uppercase">
-            <Target className="w-5 h-5 md:w-6 md:h-6 shrink-0" />
+          <h1 className="text-lg md:text-xl font-bold text-red-500 tracking-tighter flex items-center gap-1.5 uppercase">
+            <Target className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
             US_Interventions
           </h1>
-          <p className="text-xs text-gray-500 mt-2 hidden sm:block">REGISTRO DE INTERVENCIONES E INJERENCIAS CLASIFICADAS</p>
+          <p className="text-[10px] text-gray-500 mt-1 hidden sm:block">REGISTRO DE INTERVENCIONES E INJERENCIAS CLASIFICADAS</p>
           
           {user && (
             <button
               onClick={() => setShowOnlyCommented(!showOnlyCommented)}
-              className={`mt-4 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
+              className={`mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 text-[10px] md:text-xs font-bold transition-colors border ${
                 showOnlyCommented 
                 ? 'bg-red-900/30 text-red-400 border-red-500/50' 
                 : 'bg-black text-gray-400 border-gray-700 hover:border-gray-500'
@@ -402,15 +419,15 @@ export default function MapDashboard() {
           )}
 
           {/* Filtro por tipo de conflicto con categorías */}
-          <div className="mt-3 relative">
-            <div className="flex items-center gap-2 mb-1.5">
+          <div className="mt-2 relative">
+            <div className="flex items-center gap-2 mb-1">
               <Filter size={12} className="text-gray-500" />
               <span className="text-[10px] text-gray-500 uppercase tracking-wider">Filtrar por tipo de conflicto</span>
             </div>
             <select
               value={selectedFilter || ''}
               onChange={(e) => setSelectedFilter(e.target.value || null)}
-              className="w-full bg-black border border-gray-700 text-xs text-gray-300 px-3 py-2 rounded appearance-none cursor-pointer hover:border-gray-500 focus:border-red-500 focus:outline-none transition-colors"
+              className="w-full bg-black border border-gray-700 text-xs text-gray-300 px-2 py-1.5 rounded appearance-none cursor-pointer hover:border-gray-500 focus:border-red-500 focus:outline-none transition-colors"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
             >
               <option value="">Todos los tipos ({typeCounts._total || 0})</option>
@@ -432,7 +449,7 @@ export default function MapDashboard() {
           {/* Toggle Bases Militares */}
           <button
             onClick={() => { setShowBases(!showBases); if (!showBases) setShowBasesTemporal(false); }}
-            className={`mt-3 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
+            className={`mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 text-[10px] md:text-xs font-bold transition-colors border ${
               showBases
               ? 'bg-[#00CED1]/15 text-[#00CED1] border-[#00CED1]/50'
               : 'bg-black text-gray-400 border-gray-700 hover:border-gray-500'
@@ -445,7 +462,7 @@ export default function MapDashboard() {
           {/* Toggle Evolución Temporal de Bases */}
           <button
             onClick={() => { setShowBasesTemporal(!showBasesTemporal); if (!showBasesTemporal) setShowBases(false); }}
-            className={`mt-1.5 w-full flex items-center justify-center gap-2 py-2 text-xs font-bold transition-colors border ${
+            className={`mt-1.5 w-full flex items-center justify-center gap-1.5 py-1.5 text-[10px] md:text-xs font-bold transition-colors border ${
               showBasesTemporal
               ? 'bg-[#00CED1]/15 text-[#00CED1] border-[#00CED1]/50'
               : 'bg-black text-gray-400 border-gray-700 hover:border-gray-500'
@@ -456,12 +473,18 @@ export default function MapDashboard() {
           </button>
 
           {/* Global Tension Index Chart */}
-          <div className="mt-6 pt-4 border-t border-gray-800">
-            <h3 className="text-xs text-gray-400 mb-2 flex items-center gap-2">
-              <TrendingUp size={14} className={showBasesTemporal ? 'text-[#00CED1]' : 'text-red-500'} />
-              {showBasesTemporal ? 'BASES ESTABLECIDAS POR PERÍODO' : 'ÍNDICE DE ACTIVIDAD GLOBAL'}
+          <div className="mt-3 pt-3 border-t border-gray-800">
+            <h3 className="text-[10px] text-gray-400 mb-1 flex items-center gap-1.5">
+              <TrendingUp size={12} className={showBasesTemporal ? 'text-[#00CED1]' : 'text-red-500'} />
+              {showBasesTemporal ? 'BASES ESTABLECIDAS POR PERÍODO' : 'ÍNDICE DE ACTIVIDAD GLOBAL (click en un período para verlo en el mapa)'}
             </h3>
-            <div className="h-16 w-full">
+            {selectedPeriod && !showBasesTemporal && (
+              <div className="mb-1.5 text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded inline-flex items-center gap-2">
+                <span>Período seleccionado:</span>
+                <span className="font-bold">{selectedPeriod}-{Math.min(selectedPeriod + 24, 2026)}</span>
+              </div>
+            )}
+            <div className="h-24 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                   <XAxis 
@@ -480,8 +503,32 @@ export default function MapDashboard() {
                     contentStyle={{backgroundColor: '#000', borderColor: '#333', fontSize: '12px'}}
                     itemStyle={{color: '#ff003c'}}
                     labelFormatter={(label) => `${label} - ${parseInt(label) + 24}`}
+                    offset={25}
+                    position={{ y: 80 }}
                   />
-                  <Bar dataKey="events" fill={chartBarColor} radius={[2, 2, 0, 0]} />
+                  <Bar 
+                    dataKey="eventos" 
+                    fill={chartBarColor} 
+                    radius={[2, 2, 0, 0]}
+                    onClick={(barData) => {
+                      if (showBasesTemporal) return;
+                      const periodStart = parseInt(barData?.period);
+                      if (!isNaN(periodStart)) handlePeriodClick(periodStart);
+                    }}
+                    className={showBasesTemporal ? '' : 'cursor-pointer'}
+                  >
+                    {chartData.map((entry, index) => {
+                      const isSelected = selectedPeriod !== null && parseInt(entry.period) === selectedPeriod;
+                      const isUnselected = selectedPeriod !== null && !isSelected;
+                      return (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={chartBarColor}
+                          fillOpacity={isUnselected ? 0.3 : 1}
+                        />
+                      );
+                    })}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -574,6 +621,7 @@ export default function MapDashboard() {
             onClick={() => {
               setActiveFilter(activeFilter === 'actuales' ? null : 'actuales');
               setYearRange(activeFilter === 'actuales' ? [1795, 1795] : [2020, 2026]);
+              setSelectedPeriod(null);
             }}
             className={`flex-1 flex items-center justify-center gap-1 md:gap-2 py-2 text-[10px] md:text-xs font-bold rounded transition-colors border ${
               activeFilter === 'actuales'
@@ -589,6 +637,7 @@ export default function MapDashboard() {
             onClick={() => {
               setActiveFilter(activeFilter === 'historico' ? null : 'historico');
               setYearRange(activeFilter === 'historico' ? [1795, 1795] : [1795, 2026]);
+              setSelectedPeriod(null);
             }}
             className={`flex-1 flex items-center justify-center gap-1 md:gap-2 py-2 text-[10px] md:text-xs font-bold rounded transition-colors border ${
               activeFilter === 'historico'
