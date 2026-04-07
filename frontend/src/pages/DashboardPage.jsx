@@ -62,44 +62,60 @@ export default function DashboardPage() {
       decades[decadeStart][typeName] = (decades[decadeStart][typeName] || 0) + 1;
     });
     
-    const typeKeys = CHART_TYPES.map(ct => ct.key);
-    return Object.entries(decades)
-      .map(([decadeStart, types]) => {
-        const ds = parseInt(decadeStart);
-        const label = ds >= 2020 ? '2020-HOY' : `${ds}-${ds + 9}`;
-        const total = Object.values(types).reduce((sum, v) => sum + v, 0);
-        // Pre-compute cumulative sums for each type in stack order
-        const cumulative = {};
-        let runningSum = 0;
-        typeKeys.forEach(key => {
-          const val = types[key] || 0;
-          if (val > 0) {
-            runningSum += val;
-            cumulative[`_cum_${key}`] = runningSum;
-          }
-        });
-        return { decade: label, _sort: ds, total, ...types, ...cumulative };
-      })
+    const entries = Object.entries(decades).map(([decadeStart, types]) => {
+      const ds = parseInt(decadeStart);
+      const label = ds >= 2020 ? '2020-HOY' : `${ds}-${ds + 9}`;
+      const total = Object.values(types).reduce((sum, v) => sum + v, 0);
+      return { decade: label, _sort: ds, total, ...types };
+    });
+    
+    const maxTotal = Math.max(...entries.map(e => e.total), 1);
+    const totalBlockSize = Math.max(12, maxTotal * 0.15); // Bloque suficiente para mostrar el total con claridad
+
+    return entries
+      .map(entry => ({ ...entry, _total_block: totalBlockSize }))
       .sort((a, b) => a._sort - b._sort);
   }, [allInterventions]);
 
   // Custom tooltip for the stacked bar chart
   const DecadeTooltip = ({ active, payload, label }) => {
     if (!active || !payload || !payload.length) return null;
-    const total = payload.reduce((sum, p) => sum + (p.value || 0), 0);
-    return (
-      <div className="bg-black border border-gray-700 rounded p-3 shadow-2xl font-mono text-xs max-w-[220px]">
-        <p className="text-white font-bold mb-2 border-b border-gray-800 pb-1">{label} <span className="text-gray-500">({total})</span></p>
-        <div className="space-y-1">
-          {payload.filter(p => p.value > 0).map(p => (
-            <div key={p.dataKey} className="flex justify-between items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.fill }}></div>
-                <span className="text-gray-400 truncate">{p.dataKey}</span>
+    const item = payload[0];
+    
+    if (item.dataKey === '_total_block') {
+      const rowData = item.payload;
+      const shiftUp = rowData?._sort >= 1990;
+      return (
+        <div className={`bg-[#0f172a] border border-[#1e3a8a] rounded p-3 shadow-2xl font-mono text-xs max-w-[260px] ${shiftUp ? 'mb-16 -translate-y-full' : ''}`}>
+          <p className="text-white font-bold mb-2 border-b border-[#1e3a8a] pb-1">
+            {label} <span className="text-blue-300">Total: {rowData.total}</span>
+          </p>
+          <div className="space-y-1">
+            {CHART_TYPES.filter(ct => rowData[ct.key] > 0).map(ct => (
+              <div key={ct.key} className="flex justify-between items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ct.color }}></div>
+                  <span className="text-gray-400 truncate">{ct.key}</span>
+                </div>
+                <span className="text-white font-bold">{rowData[ct.key]}</span>
               </div>
-              <span className="text-white font-bold">{p.value}</span>
-            </div>
-          ))}
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const indVal = item.payload[item.dataKey];
+    const shiftUp = item.payload?._sort >= 1990;
+    return (
+      <div className={`bg-black border border-gray-700 rounded p-3 shadow-2xl font-mono text-xs max-w-[220px] ${shiftUp ? 'mb-10 -translate-y-full' : ''}`}>
+          <p className="text-white font-bold mb-2 border-b border-gray-800 pb-1">{label}</p>
+        <div className="flex justify-between items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.fill }}></div>
+            <span className="text-gray-400 truncate">{item.dataKey}</span>
+          </div>
+          <span className="text-white font-bold">{indVal}</span>
         </div>
       </div>
     );
@@ -498,7 +514,7 @@ export default function DashboardPage() {
               <TrendingUp size={14} className="text-red-500" />
               INTERVENCIONES POR DÉCADA Y TIPO
             </h2>
-            <div className="w-full overflow-x-auto custom-scrollbar">
+            <div className="w-full overflow-x-auto hide-x-scrollbar">
               <div className="flex" style={{ minWidth: '600px' }}>
                 {/* Chart area */}
                 <div className="flex-1" style={{ height: `${Math.max(300, decadeChartData.length * 36 + 60)}px` }}>
@@ -506,9 +522,10 @@ export default function DashboardPage() {
                     <BarChart 
                       data={decadeChartData} 
                       layout="vertical" 
-                      margin={{ top: 5, right: 10, bottom: 5, left: 10 }}
+                      margin={{ top: 5, right: 10, bottom: 38, left: 10 }}
                       barSize={20}
                       barGap={2}
+                      isAnimationActive={false}
                     >
                     <XAxis type="number" hide />
                     <YAxis 
@@ -517,44 +534,61 @@ export default function DashboardPage() {
                       tick={{ fontSize: 11, fill: '#9ca3af', fontFamily: 'monospace' }} 
                       axisLine={false}
                       tickLine={false}
-                      width={85}
+                      width={92}
                     />
-                    <Tooltip content={<DecadeTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                    <Tooltip
+                      shared={false}
+                      cursor={false}
+                      allowEscapeViewBox={{ x: true, y: true }}
+                      wrapperStyle={{ zIndex: 9999 }}
+                      offset={32}
+                      content={<DecadeTooltip />}
+                    />
                     {CHART_TYPES.map(ct => (
                       <Bar 
                         key={ct.key} 
                         dataKey={ct.key} 
-                        stackId="a" 
-                        fill={ct.color}
-                        radius={0}
-                        label={({ x, y, width, height, value, index }) => {
-                          if (!value || width < 18) return null;
-                          const cumVal = decadeChartData[index]?.[`_cum_${ct.key}`] || value;
+                      stackId="a" 
+                      fill={ct.color}
+                      radius={0}
+                      minPointSize={4}
+                      isAnimationActive={false}
+                      label={(props) => {
+                          const { x, y, width, height, index } = props;
+                          const val = decadeChartData[index]?.[ct.key];
+                          if (!val) return null;
+                          const fontSize = width < 18 ? 8 : 10;
                           return (
-                            <text x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={10} fontWeight="bold" fontFamily="monospace">
-                              {cumVal}
+                            <text style={{ pointerEvents: 'none' }} x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fontSize} fontWeight="bold" fontFamily="monospace">
+                              {val}
                             </text>
                           );
                         }}
                       />
                     ))}
+                    {/* Punto final azul oscuro con el total */}
+                    <Bar 
+                      dataKey="_total_block" 
+                      stackId="a" 
+                      fill="#1e3a8a" // azul oscuro
+                      radius={[0, 4, 4, 0]}
+                      minPointSize={4}
+                      isAnimationActive={false}
+                      label={(props) => {
+                        const { x, y, width, height, index } = props;
+                        const total = decadeChartData[index]?.total;
+                        return (
+                          <text style={{ pointerEvents: 'none' }} x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle" fill="#93c5fd" fontSize={10} fontWeight="bold" fontFamily="monospace">
+                            {`Total: ${total}`}
+                          </text>
+                        );
+                      }}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
                 </div>
-                {/* Totals column */}
-                <div className="flex flex-col justify-start shrink-0 w-10" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
-                  {decadeChartData.map(d => (
-                    <div 
-                      key={d.decade} 
-                      className="flex items-center justify-end text-xs text-gray-400 font-bold font-mono"
-                      style={{ height: `${(Math.max(300, decadeChartData.length * 36 + 60) - 10) / decadeChartData.length}px` }}
-                    >
-                      {d.total}
-                    </div>
-                  ))}
               </div>
-            </div>
-            {/* Totals summary row */}
+              {/* Totals summary row */}
             <div className="flex items-center mt-3 pt-3 border-t border-gray-700" style={{ minWidth: '600px' }}>
               <span className="text-xs text-gray-400 font-bold font-mono uppercase shrink-0" style={{ width: '95px', paddingLeft: '10px' }}>TOTAL</span>
               <div className="flex-1 flex items-center gap-1 flex-wrap">

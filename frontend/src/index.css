@@ -21,6 +21,16 @@ body {
   background: #ef4444; /* hover rojo */
 }
 
+/* Ocultar scrollbar horizontal donde no aporta UX */
+.hide-x-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-x-scrollbar::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
 /* Modificar el Popup de MapLibre para el Dark Mode */
 .dark-popup .maplibregl-popup-content {
   background: transparent !important;
